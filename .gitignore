@@ -1,0 +1,51 @@
+# Rust build output. Cargo.lock is intentionally tracked for this application.
+/target/
+**/*.rs.bk
+
+# Packaging and local release output
+/artifacts/
+/build/
+/dist/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python-based design and asset tooling
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editor state
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+

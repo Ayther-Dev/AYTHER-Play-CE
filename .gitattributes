@@ -1,0 +1,26 @@
+# Normalize text in the repository while keeping Windows command files native.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Make generated or domain-specific text easier for GitHub to classify.
+*.pen text eol=lf linguist-language=JSON
+*.slint text eol=lf linguist-language=Slint
+*.rs text eol=lf diff=rust
+*.codepoints text eol=lf
+
+# Binary assets must never undergo line-ending conversion.
+*.ay binary
+*.bmp binary
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.otf binary
+*.png binary
+*.ttf binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+
