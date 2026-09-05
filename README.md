@@ -75,11 +75,11 @@ Cargo resolves `ayther_core` directly from
 [AYTHER Engine v0.1.0-rc.6](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.6).
 No sibling Engine checkout is required.
 
-Play targets Runtime `v0.1.0-beta.2`. The definitive public beta.2 artifact is
-**pending confirmation** (the release API returned 404 on 2026-09-05). Source
-validation currently pins commit `218aab6970f1472d0da9e5c21015972a3bfd4974` in
-[`tools/runtime-lock.json`](tools/runtime-lock.json); it does not certify an
-unpublished binary.
+Play targets [Runtime v0.1.0-beta.2](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.2),
+published on 2026-09-05. The Windows AMD64 distribution and source commit
+`401cc3e4c0fdebe90e9eb5192ea21c48ec02e518` are pinned with the archive SHA-256 in
+[`tools/runtime-lock.json`](tools/runtime-lock.json). Real probe and invalid-map
+integration checks passed against that distributed binary.
 
 Use Rust **1.95.0** (selected by `rust-toolchain.toml`). On Windows install Visual
 Studio 2022 C++ Build Tools and Windows SDK, plus Git and PowerShell 7. From this
@@ -101,8 +101,8 @@ source and hash-verified distribution, not a developer checkout.
 
 Custom keyboard and controller controls are configured in Play and passed as a
 TOML map. See [`docs/RUNTIME_INPUT_MAP.md`](docs/RUNTIME_INPUT_MAP.md) for defaults,
-allowed values and failures. Beta.1 predates this contract; beta.2 in-game checks
-remain pending until its final artifact is available.
+allowed values and failures. Beta.1 predates this contract. Default/custom controls
+inside an actual game still require the manual checks in the validation record.
 
 CI runs formatting, compilation, Clippy and tests. Real-process tests are marked
 ignored in ordinary development and explicitly required by the separate release

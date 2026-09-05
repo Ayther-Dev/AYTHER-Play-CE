@@ -4,48 +4,71 @@ This is a partial validation record, not a release approval.
 
 ## Revisions and environment
 
-- Play baseline: `9ea2e39c692ba97405ec93a1de45b0d39308db65`. The implementation was
-  initially untracked; the historical 375 passed / 2 failed result is a baseline,
-  not coverage evidence. Changes are recorded by the commit containing this file.
+- Play baseline: `9ea2e39c692ba97405ec93a1de45b0d39308db65`. Its implementation was
+  initially untracked. Historical **375 passed / 2 failed** is a baseline, not
+  evidence of comprehensive coverage.
+- Implementation commit: `b89cd75c2caa4c46aca648a055e14f66d3565b52`, branch
+  `feat/beta-readiness`. Subsequent commits pin the definitive distribution and
+  record validation; no behavioral source changes after that implementation.
 - Rust: `rustc 1.95.0 (59807616e 2026-04-14)`, Windows x86-64 MSVC.
 - Engine: `v0.1.0-rc.6`, locked commit
   `091ee4ca088dca66837ee285d8a02dd5a1d90e86`.
-- Runtime source: clean detached checkout of
-  `218aab6970f1472d0da9e5c21015972a3bfd4974`, prepared separately from the sibling.
-- Distributed Runtime: **unavailable for validation**. The public GitHub release
-  API for `v0.1.0-beta.2` returned HTTP 404. Final asset/platform checksum remains
-  unset in `tools/runtime-lock.json` rather than guessed.
+- Runtime: published `v0.1.0-beta.2`, commit
+  `401cc3e4c0fdebe90e9eb5192ea21c48ec02e518`.
+- Runtime Windows asset: `ayther-runtime-0.1.0-beta.2-Windows-AMD64-Runtime.zip`.
+  SHA-256: `01fd646b295422ed5b97462f7970711901689b6ffe822c1730b2cd7adf106e23`.
+  Downloaded bytes match the release digest; packaged metadata reports beta.2,
+  protocol 1 and Engine rc.6. Exact URL is in `tools/runtime-lock.json`.
+- Initial unauthenticated release lookup returned 404. A subsequent GitHub CLI
+  lookup confirmed the published release and both repositories' public visibility;
+  the earlier lookup was not evidence that beta.2 was unavailable.
 
-## Evidence and task status
+## Automated evidence
 
-| Tasks | Status and evidence |
+- Formatting and strict all-target/all-feature Clippy: passed, no global lint
+  suppressions added.
+- Main suite against beta.2 source: **382 passed, 0 failed, 2 explicitly ignored**.
+- Separate required real integration: **2 passed, 0 failed, 0 ignored** against
+  the distributed Runtime. This covers the Play core probe and Play's launcher
+  with missing, malformed and contract-rejected input maps in a path with spaces.
+  Every map failure returns 78, preserves `input.map_invalid`, writes no save and
+  emits no Ready/NowPlaying event.
+- Negative integration gate: missing dependency variables cause failure, not a
+  skipped/pass result. Incomplete release metadata also fails preparation.
+- Clean local clone of the committed Play implementation, with a new `target`
+  directory: format, locked offline check, Clippy and all tests passed. Check took
+  3m 37s. Rust crate/Engine source caches were reused; compilation outputs and
+  sibling checkouts were not. Runtime was separately cloned and pinned. This is
+  not a fresh Windows installation or a network bootstrap test without caches.
+- Original MPL-2.0 metadata-only probe fixture compiled successfully. It contains
+  no ROM, firmware, commercial game or third-party emulator code.
+- Windows release build and versioned packaging succeeded. The extracted binary
+  ran `--packs` outside the development tree and exited 0. This checks the loader
+  and CLI startup, not visual UI behavior or in-game interaction.
+- Remote GitHub Actions execution has not been observed; the equivalent local
+  checks above passed. CI is configured for pushes/PRs and release integration
+  for version tags/manual dispatch.
+
+## Task closure
+
+| Tasks | Result |
 | --- | --- |
-| SAVE-01–04 | Implemented. Same-directory unique temporary, sync, replacement without destination deletion; injected write/replacement failures preserve prior bytes and clean temporaries. Windows sharing-denial regression additionally exercises real replacement failure. Power-loss durability is explicitly not claimed. |
-| PACK-01–04 | Implemented. Shared ID rule and lifecycle destination checks before mutations, including CLI calls. Temp-directory regressions cover traversal, absolute paths, Unix/Windows separators, reserved names and nonregular destinations; ordinary install/update/rollback tests remain. |
-| RT-01 | Help contract reads runtime_application.cpp. Both prior failures fixed; missing-flag regression preserves the oracle. |
-| RT-02 | Blocked on final public beta.2 artifact. Source is pinned; release ZIP and checksum are not available. |
-| RT-03 | Real integration is explicitly ignored in normal runs and required with --ignored for release. Missing Runtime/core fails, never returns success. The release preparation command was checked to fail on pending artifact metadata. |
-| RT-04–05 | Not executed: distributed Runtime and an authorized playable core/game/controller setup are still required. TOML/unit/source tests do not close in-game checks. |
-| RT-06 | Implemented failure-reason propagation and localized Play guidance. Real-process test covers missing/malformed/rejected maps and spaces in path, but remains unexecuted without beta.2. UI behavior also needs manual confirmation. |
-| BUILD-01 | Sources, UI, tests, lockfile and resources included in version control; caches, build outputs and dependency checkouts excluded. |
-| BUILD-02–04 | Rust 1.95.0 pinned; strict Clippy fixed without global suppressions. Windows PR/push CI configured for format/check/Clippy/tests. Remote Actions execution is not claimed. |
-| BUILD-05 | Release workflow and original redistributable probe-only core prepared. Real integration remains blocked on the distribution. The fixture does not emulate a game. |
-| BUILD-06 | Clean-checkout verification result recorded below when complete. Dependency downloads are explicit; no sibling checkout is required. |
+| SAVE-01–04 | Complete: atomic publication without deleting the destination, error propagation, cleanup policy, injected failures and real Windows sharing-denial regression. Power-loss durability explicitly not claimed. |
+| PACK-01–04 | Complete: centralized portable IDs and checks for all lifecycle destinations before mutation, including CLI entry points. Traversal/absolute/separator/reserved-name regressions preserve outside witnesses; ordinary install/update/rollback pass. |
+| RT-01–03 | Complete: updated help oracle and missing-flag regression, final tag/asset/checksum pinned, integration required rather than silently skipped. |
+| RT-04–05 | Pending: default/custom keyboard and physical controller mappings must still be verified inside an authorized playable game/core. Source and TOML tests do not close these checks. |
+| RT-06 | Automated process behavior passed for all requested invalid-map categories. Localized Play diagnosis implemented; visual confirmation remains manual. |
+| BUILD-01–04 | Implementation tracked, toolchain pinned, Clippy clean, basic CI configured. |
+| BUILD-05 | Real probe and invalid-map integration passed with versioned Runtime and redistributable probe fixture; workflow configured. |
+| BUILD-06 | Clean-clone commands passed with cached dependency sources and fresh build output; clean-OS verification remains outside this run. |
 | DOC-01–03 | README, input-map contract and standalone contributor instructions updated. |
-| REL-01 | Versioned Windows package script and external dependencies documented. Package startup outside the development tree and manual game validation are not yet certified. |
-| REL-02 | This record distinguishes completed automated checks, baseline, blocked integration and manual work. |
+| REL-01 | Windows package generation and extracted CLI startup passed; graphical startup/in-game checks on a clean Windows host remain pending. |
+| REL-02 | This record distinguishes actual automated evidence, historical baseline and remaining manual checks. |
 
-## Automated run
+## Remaining limits
 
-Initial pinned-source run: **380 passed, 0 failed, 2 explicitly ignored**. Strict
-Clippy passed. Later regression additions and clean-checkout results are recorded
-below after their execution. The two ignored cases are the real Runtime/core probe
-and the invalid-map launcher integration; they are not counted as passed.
-
-## Open limitations
-
-The beta remains unapproved until the final distribution can be hash-pinned and
-the release workflow plus in-game default/custom controls and packaged startup
-checks have run. Pack checks assume no concurrent hostile modification of the
-configured directory. Save publication does not establish power-loss durability
-or guarantees for Runtime's own independent save implementation.
+The beta remains unapproved until default/custom controls are verified in-game,
+Play's error UI is checked visually and the package is exercised on a clean host.
+Pack checks assume no concurrent hostile replacement of directory entries. Save
+publication does not establish power-loss durability or guarantees for Runtime's
+independent save implementation. The probe-only fixture cannot emulate a game.

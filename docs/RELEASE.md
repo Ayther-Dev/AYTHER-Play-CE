@@ -2,7 +2,9 @@
 
 Initial validation target: Windows x86-64 MSVC. Install Git, Rustup, PowerShell 7
 and Visual Studio 2022 Build Tools with Desktop development with C++ and a Windows
-SDK (linker and resource compiler). `rust-toolchain.toml` selects Rust 1.95.0,
+SDK (linker and resource compiler). Release integration also uses GitHub CLI (`gh`)
+with repository read access; GitHub Actions supplies its standard `GH_TOKEN`.
+`rust-toolchain.toml` selects Rust 1.95.0,
 rustfmt and Clippy. Allow Cargo network access on first use for locked crates and
 Engine `v0.1.0-rc.6`; no sibling Engine checkout is required. UI, translations and
 fonts are embedded by the build. Other platforms are not release-validated here.
@@ -32,11 +34,11 @@ Release validation additionally requires:
 cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored
 ```
 
-The release workflow runs on version tags or manual dispatch. It must fail while
-`tools/runtime-lock.json` is pending. Once beta.2 is published, review and record
-the final source commit, immutable tag asset URL, SHA-256, platform and relative
-executable path; set status to `available`. Do not substitute a locally built
-Runtime or mark a missing dependency as passed. The script checks the archive hash
+The release workflow runs on version tags or manual dispatch. Beta.2's published
+Windows AMD64 artifact, source commit, URL, SHA-256 and executable path are fixed
+in `tools/runtime-lock.json`. For a future upgrade, review and update all fields;
+pending or incomplete metadata must fail release validation. Do not substitute a
+locally built Runtime or mark a missing dependency as passed. The script checks the archive hash
 and builds the original MPL-2.0 `tools/probe_fixture.rs` for the real metadata
 probe. That fixture is freely redistributable but does not emulate a game.
 

@@ -1,8 +1,8 @@
 # Game controls and Runtime beta.2
 
-Play targets Runtime `v0.1.0-beta.2`. Its definitive public distribution was not
-available at validation time (2026-09-05); do not infer binary compatibility from
-source-contract tests. The exact source revision is in
+Play targets Runtime `v0.1.0-beta.2`, published and verified on 2026-09-05.
+The Windows AMD64 distribution passes the real probe and invalid-map checks.
+The exact source revision and archive checksum are in
 [`tools/runtime-lock.json`](../tools/runtime-lock.json). Runtime's canonical source
 documentation is `docs/input-map.md` in that checkout.
 

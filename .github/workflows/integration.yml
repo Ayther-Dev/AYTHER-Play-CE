@@ -13,6 +13,8 @@ jobs:
           components: rustfmt, clippy
       - name: Require versioned distribution and build redistributable probe core
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           ./tools/prepare-runtime.ps1 -Integration
           "AYTHER_RUNTIME_SOURCE=$env:AYTHER_RUNTIME_SOURCE" >> $env:GITHUB_ENV
