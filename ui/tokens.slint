@@ -1,0 +1,78 @@
+// ---------------------------------------------------------------------------
+// tokens.slint — GENERADO desde play-ce/docs/design/play-ce.pen. NO editar a mano.
+//
+//     py play-ce/tools/gen_tokens.py            regenera
+//     py play-ce/tools/gen_tokens.py --check    falla si quedó viejo (CI)
+//
+// El diseño es la fuente de verdad: un color que no está en el .pen no
+// existe en Play. Las paletas de DOMINIO (colores por plataforma) siguen
+// siendo literales en appwindow.slint a propósito — no son tokens de marca.
+//
+// Escala 10-foot: Play se usa a distancia de TV. El mínimo legible es
+// `body-sm` (18px, contraste text-dim/bg-window ≈ 5.84:1, AA a ese tamaño);
+// los objetivos interactivos miden al menos `control-md`.
+// ---------------------------------------------------------------------------
+
+import "../fonts/Khand-SemiBold.ttf";        // display 600
+import "../fonts/Khand-Medium.ttf";        // display 500
+import "../fonts/IBMPlexSans-Regular.ttf";        // UI 400 (default)
+import "../fonts/IBMPlexSans-Medium.ttf";        // UI 500
+import "../fonts/IBMPlexSans-SemiBold.ttf";        // UI 600
+import "../fonts/IBMPlexMono-Regular.ttf";        // mono 400
+import "../fonts/Phosphor.ttf";        // iconografía (ver gen_icons.py)
+
+export global Tokens {
+    // -- Familias (vendorizadas en play-ce/fonts/) ---------------------------
+    out property <string> font-display: "Khand";   // display: MAYÚSCULAS, italic sintética
+    out property <string> font-ui:      "IBM Plex Sans";
+    out property <string> font-mono:    "IBM Plex Mono";
+    out property <string> font-icon:    "Phosphor";   // iconografía: NUNCA un carácter parecido
+
+    // -- Color ------------------------------------------------------------
+    out property <color> accent:           #facc2d;
+    out property <color> accent-hi:        #fcdd6f;
+    out property <color> accent-dim:       #c9a006;
+    out property <color> accent-tint:      #facc2d1a;
+    out property <color> accent-hover:     #facc2d2e;
+    out property <color> accent-active:    #facc2d52;
+    out property <color> accent-fg:        #1b1a10;
+    out property <color> brand:            #fb2c36;
+    out property <color> bg-window:        #2a2a2f;
+    out property <color> bg-panel:         #323238;
+    out property <color> bg-elevated:      #3b3b42;
+    out property <color> bg-input:         #26262b;
+    out property <color> bg-well:          #1f1f23;
+    out property <color> border:           #4b4b55;
+    out property <color> border-soft:      #38383f;
+    out property <color> text-normal:      #d6d6dc;
+    out property <color> text-dim:         #a5a5ae;
+    out property <color> text-bright:      #f0f0f5;
+    out property <color> success:          #21bf61;
+    out property <color> warning:          #e59241;
+    out property <color> danger:           #d13030;
+    out property <color> info:             #84a8d3;
+    out property <color> modal-dim:        #1414179e;
+    out property <color> overlay-hi:       #ffffff0d;
+    out property <color> overlay-line:     #ffffff12;
+    out property <color> overlay-strong:   #ffffff2c;
+
+    // -- Forma y medidas --------------------------------------------------
+    out property <length> radius-sm:       0px;
+    out property <length> radius-md:       4px;
+    out property <length> radius-lg:       6px;
+    out property <length> radius-pill:     999px;
+    out property <length> focus-width:     3px;
+    out property <length> control-sm:      40px;
+    out property <length> control-md:      48px;
+    out property <length> control-lg:      56px;
+
+    // -- Escala tipográfica (los átomos t-* del .pen) ----------------------
+    out property <length> text-display-xl:  64px;   // hero de ficha, título de pantalla
+    out property <length> text-display-lg:  44px;   // títulos de sección, paso de wizard
+    out property <length> text-display-md:  32px;   // títulos de diálogo y tarjeta destacada
+    out property <length> text-body-lg:     26px;   // labels de botón lg, nombre con foco
+    out property <length> text-body:        22px;   // texto base de la UI
+    out property <length> text-body-sm:     18px;   // mínimo legible: metadatos, hints
+    out property <length> text-mono:        20px;   // hashes, rutas, versiones
+}
+

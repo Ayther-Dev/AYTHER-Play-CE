@@ -1,0 +1,67 @@
+[workspace]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["David Lazarte <david.lazarte@gmail.com>"]
+
+[package]
+name = "ayther_play_ce"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Offline-first AYTHER launcher with a ten-foot UI and local enhancement-pack support"
+license = "MPL-2.0"
+
+[[bin]]
+name = "ayther_play_ce"
+path = "src/main.rs"
+
+[build-dependencies]
+embed-resource = "3.0.11"
+slint-build = "1.16"
+
+[dependencies]
+# ---- UI ------------------------------------------------------------------
+# Las traducciones van EMPAQUETADAS en el binario (`with_bundled_translations`),
+# no por gettext: la feature `gettext` de Slint arrastra `gettext-sys`, que en
+# Windows compila libintl desde fuente con autotools. Un launcher que no se
+# puede clonar y compilar no es un launcher.
+slint = "1.16"
+
+# ---- Biblioteca ----------------------------------------------------------
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon      = "1.10"          # CRC32 en paralelo sobre la carpeta de ROMs
+walkdir    = "2.5"
+crc32fast  = "1.4"
+quick-xml  = "0.38"          # los DAT de No-Intro
+dirs       = "5.0"
+toml       = "0.8"
+gilrs      = "0.11.2"
+tempfile   = "3"
+
+# ---- Packs, DESDE EL DISCO -----------------------------------------------
+# CE no descarga packs: los lee de donde el jugador los dejó. Lo que sí hace es
+# verificar que el `.ay` esté COMPLETO y que sus hashes cierren, y eso lo
+# resuelve el core, que es el mismo lector que usa el Runtime.
+zip        = "2"
+sha2       = "0.10"
+ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.6", version = "0.1" }
+
+# LO QUE NO ESTÁ, Y ES LA DIFERENCIA CON LA EDICIÓN PAGA:
+#
+#   reqwest         — CE no habla con ningún servicio.
+#   ed25519-dalek   — verificar una firma sin un registro de claves de
+#                     confianza no dice nada. Decir «este pack es de quien dice
+#                     ser» necesita una fuente de confianza independiente.
+#   httpdate        — era para el reloj lógico de los guardados en la nube.
+#   windows-sys     — era para guardar el token de sesión en el Credential
+#                     Manager. Sin cuenta no hay token.
+#
+# Que la lista de dependencias sea más corta no es una casualidad: es la
+# diferencia entre las dos ediciones, escrita donde se compila.
+
+[dev-dependencies]
+serde_json = "1"

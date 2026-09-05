@@ -6,6 +6,9 @@
 /artifacts/
 /build/
 /dist/
+/graphify-out/
+/validation-deps/
+/artifacts-*.txt
 
 # Local configuration and secrets
 .env
@@ -48,4 +51,3 @@ Desktop.ini
 *.log
 *.tmp
 *.temp
-

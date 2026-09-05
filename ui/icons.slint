@@ -1,0 +1,63 @@
+// ---------------------------------------------------------------------------
+// icons.slint — GENERADO desde play-ce/docs/design/play-ce.pen. NO editar a mano.
+//
+//     py play-ce/tools/gen_icons.py            regenera
+//     py play-ce/tools/gen_icons.py --check    falla si quedó viejo (CI)
+//
+// Toda la iconografía de Play es Phosphor (el .pen declara cada icono con su
+// `library`). Acá está el nombre del diseño con su codepoint, sacado de
+// fonts/Phosphor.codepoints — la tabla del release del que sale la .ttf.
+//
+// En la UI se usan POR NOMBRE (`Icons.check-circle`) y con
+// `font-family: Tokens.font-icon`. Un codepoint escrito a mano no da error en
+// Slint: dibuja un cuadradito, y eso sólo se ve mirando esa pantalla.
+// ---------------------------------------------------------------------------
+
+export global Icons {
+    out property <string> arrow-bend-up-left: "\u{e024}";   // «Volver» del diálogo previo al lanzamiento
+    out property <string> arrow-counter-clockwise: "\u{e038}";   // menú de juego: «Restaurar valores automáticos» (fila que el .pen no dibuja)
+    out property <string> arrows-left-right: "\u{e0a0}";   // hint de ←→ (puntuar la encuesta, elegir en el conflicto de guardado)
+    out property <string> caret-down: "\u{e136}";
+    out property <string> caret-right: "\u{e13a}";
+    out property <string> check: "\u{e182}";   // alias de `check-bold` del .pen
+    out property <string> check-circle: "\u{e184}";
+    out property <string> circle: "\u{e18a}";   // lanzamiento: el paso PENDIENTE (el .pen dibuja sólo el hecho y el actual)
+    out property <string> circle-notch: "\u{eb44}";
+    out property <string> copyright: "\u{e54a}";
+    out property <string> cpu: "\u{e610}";
+    out property <string> desktop: "\u{e560}";
+    out property <string> download-simple: "\u{e20c}";
+    out property <string> eye-slash: "\u{e224}";
+    out property <string> flag: "\u{e244}";
+    out property <string> floppy-disk: "\u{e248}";
+    out property <string> folder: "\u{e24a}";
+    out property <string> folder-open: "\u{e256}";
+    out property <string> game-controller: "\u{e26e}";
+    out property <string> gear-six: "\u{e272}";
+    out property <string> image: "\u{e2ca}";
+    out property <string> info: "\u{e2ce}";
+    out property <string> list: "\u{e2f0}";
+    out property <string> magnifying-glass: "\u{e30c}";
+    out property <string> monitor: "\u{e32e}";
+    out property <string> package: "\u{e390}";
+    out property <string> pencil-simple: "\u{e3b4}";
+    out property <string> person: "\u{e3a8}";
+    out property <string> play: "\u{e3d0}";
+    out property <string> plugs: "\u{eb56}";
+    out property <string> plus: "\u{e3d4}";
+    out property <string> question: "\u{e3e8}";
+    out property <string> seal-check: "\u{e606}";
+    out property <string> shield-warning: "\u{e412}";
+    out property <string> sparkle: "\u{e6a2}";
+    out property <string> speaker-high: "\u{e44a}";
+    out property <string> squares-four: "\u{e464}";
+    out property <string> star: "\u{e46a}";
+    out property <string> storefront: "\u{e470}";
+    out property <string> trash: "\u{e4a6}";
+    out property <string> user-circle: "\u{e4c4}";
+    out property <string> users-three: "\u{e68e}";
+    out property <string> warning: "\u{e4e0}";
+    out property <string> x: "\u{e4f6}";
+    out property <string> x-circle: "\u{e4f8}";
+}
+

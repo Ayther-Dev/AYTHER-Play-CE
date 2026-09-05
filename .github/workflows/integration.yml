@@ -1,0 +1,23 @@
+name: Release integration
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  runtime:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: rustfmt, clippy
+      - name: Require versioned distribution and build redistributable probe core
+        shell: pwsh
+        run: |
+          ./tools/prepare-runtime.ps1 -Integration
+          "AYTHER_RUNTIME_SOURCE=$env:AYTHER_RUNTIME_SOURCE" >> $env:GITHUB_ENV
+          "AYTHER_RUNTIME_EXE=$env:AYTHER_RUNTIME_EXE" >> $env:GITHUB_ENV
+          "AYTHER_TEST_CORE=$env:AYTHER_TEST_CORE" >> $env:GITHUB_ENV
+      - run: cargo test -p ayther_play_ce --all-features --locked
+      - name: Required real process checks (no dependency skips)
+        run: cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored

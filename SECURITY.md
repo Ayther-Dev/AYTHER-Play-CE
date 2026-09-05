@@ -50,18 +50,17 @@ The following are important trust boundaries rather than vulnerabilities by them
 
 - A successful local hash check establishes integrity against the pack's own manifest; it does
   **not** establish publisher identity, provenance, safety, or authenticity.
-- CE does not provide an AYTHER Hub trust registry, account system, cloud saves, telemetry, or
-  service-managed updates.
+- CE does not provide an AYTHER-operated trust registry, account system, cloud saves,
+  telemetry, or service-managed updates.
 - Vulnerabilities in the separate proprietary AYTHER Play product or AYTHER-operated services
   are outside this repository's scope and should be reported through their designated channel.
 
-Reports about missing hardening in a feature that does not yet exist are usually design
-feedback rather than exploitable vulnerabilities, but early threat-model contributions are
-welcome through a non-sensitive public issue.
+Reports about roadmap-only features or hypothetical hardening gaps are usually design feedback
+rather than exploitable vulnerabilities. Early threat-model contributions remain welcome, but
+they must not be presented as vulnerabilities in released software because no release exists.
 
 ## Disclosure and safe testing
 
 Test only systems and data you own or are authorized to assess. Do not access other users'
 data, disrupt services, distribute copyrighted game content, or retain sensitive information.
 Coordinated disclosure credit can be arranged when desired, but is not guaranteed.
-

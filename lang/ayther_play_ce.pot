@@ -1,0 +1,1201 @@
+# Catálogo de AYTHER Play — es.
+# GENERADO por play-ce/tools/gen_translations.py. Las traducciones viven en ese script.
+msgid ""
+msgstr ""
+"Project-Id-Version: ayther_play_ce\n"
+"POT-Creation-Date: 2026-08-26 00:00+0000\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ui/appwindow.slint
+msgid "Espacio"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Retroceso"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Enter"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Re Pág"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Av Pág"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Falta el core"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "El core no sirve"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Compatible"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Con advertencias"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Incompatible"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "No verificado"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Escaneando la biblioteca"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Escaneando… {} juego encontrado"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Escaneando… {} juegos encontrados"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Cancelar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "No hay ROMs — apretá F5 para escanear"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Activo"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Apagado"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "No se puede usar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Instalar un pack desde el disco"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Desactivar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Activar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Cambiar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Jugar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Atrás"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Sección"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Elegir"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Entrar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Usar esta carpeta"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Cerrar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Revertir"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Tecla"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Botón"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Restaurar todo"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Restaurar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Activar/Desactivar pack"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Partida nueva"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Modo seguro"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Recuperar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Descartar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Puntuar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Guardar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ahora no"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Continuar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ficha"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Menú"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Seleccionar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Filtrar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Orden: Z → A"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Orden: por consola"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Orden: recientes"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Orden: A → Z"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Secciones de Play"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "INICIO"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "BIBLIOTECA"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "AJUSTES"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "En juego"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Escaneando…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "CONTINUAR"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ver biblioteca"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "TODAVÍA NO HAY JUEGOS"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "EMPEZÁ POR DONDE QUIERAS"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Agregá una carpeta con tus ROMs desde Biblioteca o Ajustes › Rutas."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Cuando juegues algo, va a aparecer acá para seguir de una."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ir a Biblioteca"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "RECIENTES"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Buscar juego…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Todas"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Compatibles"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Favoritos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ordenar la biblioteca"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Vista de grilla"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Vista de lista"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "{} de {} juegos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Quitar filtros"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "SISTEMA"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Idioma"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Predeterminado · Español · English"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "global"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Carpetas de ROMs"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Editar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Cores"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Administrar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Perfil de salida"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Cómo se ve la imagen: CRT, LCD, píxel exacto…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Controles del juego"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Configurar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Carpeta de packs"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Un .ay que conseguiste por fuera: se audita entero y la versión anterior queda guardada"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Instalar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Carpeta de datos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Exportar mis datos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Un ZIP con tus guardados y tus preferencias, para llevártelo"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Exportar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Volver a ver la bienvenida"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Onboarding y términos BYOR/BYOC"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Abrir"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "↑↓ elegir   A cambiar   ←→ sección   B atrás"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Configuración"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Guardados"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Tiempo jugado"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Última vez"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Consola"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "ESTADO"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "PACK"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "No hay pack para este juego — se juega el original."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Sin pack: se juega el original, completo."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Un pack HD es un archivo .ay que conseguís por fuera. Instalalo desde acá, o dejalo en tu carpeta de packs y aparece solo."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "El mando lo maneja el juego"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "En el juego: F2 compara con el original    F12 saca la captura"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Agregá ROMs a tu biblioteca"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Quitar de favoritos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Favorito"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Elegir pack"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Elegir core"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Editar metadatos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Restaurar valores automáticos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Mostrar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ocultar"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Detectado: {}"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "GUARDADOS"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Todavía no hay ninguna partida guardada de este juego."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Actual"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Anterior"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Restaurar no borra nada"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "La versión que estás jugando se conserva en el historial, con su fecha. La ROM no se modifica."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "CONTROLES DEL JUEGO"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Qué hace cada tecla y cada botón dentro de la partida. La cruceta no se cambia: es dirección."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Acción"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "apretá una tecla…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "apretá un botón…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Esperando una tecla del teclado — Esc cancela"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Esperando un botón del mando — Esc cancela"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "ELEGÍ TU CARPETA DE PACKS"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "INSTALAR UN PACK DESDE EL DISCO"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Acá no hay ningún pack: se buscan archivos .ay."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Auditando e instalando… El archivo se comprueba entero antes de tocar nada."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "La auditoría dice que el archivo está completo, no de quién es: eso CE no puede saberlo."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "EL JUEGO SE CERRÓ INESPERADAMENTE"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Reiniciar en modo seguro"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Se lanza sin pack, sin shaders y sin overrides. La ROM y tus guardados quedan intactos."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "SESIÓN SIN CERRAR"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Descartar borra sólo el registro de esa sesión. La ROM, la SRAM y tus guardados no se tocan."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Modo seguro: sin pack, shaders ni overrides. La ROM y los guardados no se tocan."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Salir del modo seguro"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "PREPARANDO…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "PREPARANDO {}…"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Mientras jugás, Play se queda esperando acá. Cuando cierres el juego, volvés a esta pantalla."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "CONFIGURACIÓN PREVIA"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Sin pack — se juega el original"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Pack: {}"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Volver"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "D / Esc / B volver"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Créditos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Este pack no declara créditos."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "C / Esc / B volver"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "SESIÓN TERMINADA"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Esta sesión"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Capturas"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "¿Cómo quedó este pack?"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Se guarda en tu equipo. No se envía nada sin que vos lo pidas."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "↑↓ elegir    ←→ puntuar    Enter guardar    Esc ahora no    N no preguntar más"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Paso {} de {}"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Movete con el stick o la cruceta y confirmá con A. Si no se detecta ningún mando, podés seguir con teclado."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Ningún mando detectado — podés seguir con teclado"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "conectado"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Play sólo lee. No copia, no mueve y no sube nada."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Quitar la carpeta"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Agregar carpeta"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Elegí el archivo del core que vas a usar."
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Acepto los términos"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Entiendo y acepto"
+msgstr ""
+
+#: ui/appwindow.slint
+msgid "Aceptado el {}"
+msgstr ""
+
+#: src/controls.rs
+msgid "Arriba"
+msgstr ""
+
+#: src/controls.rs
+msgid "Abajo"
+msgstr ""
+
+#: src/controls.rs
+msgid "Izquierda"
+msgstr ""
+
+#: src/controls.rs
+msgid "Derecha"
+msgstr ""
+
+#: src/controls.rs
+msgid "Shift der."
+msgstr ""
+
+#: src/controls.rs
+msgid "Shift izq."
+msgstr ""
+
+#: src/core_probe.rs
+msgid "no es una DLL de Windows"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "el runtime no informó el resultado del sondeo"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Core válido: {} {}"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "No se encontró el core"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "El core es de otra arquitectura"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Ese archivo no es un core"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "El core usa una versión de libretro que no soportamos"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "No se pudo comprobar el core"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "No declara extensiones conocidas; se aceptará igual, pero puede rechazar tus ROM."
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Sirve para: {}"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Elegí el archivo del core en tu equipo. Buscábamos: {}"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Descargá la versión {} del core: la que elegiste es {}."
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Elegí un core de libretro (por ejemplo genesis_plus_gx_libretro), no otra DLL."
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Este core habla la API {} y Ayther habla la 1. Actualizá el core."
+msgstr ""
+
+#: src/core_probe.rs
+msgid "Revisá la instalación de Ayther. Detalle: {}"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "no se pudo ejecutar {}: {}"
+msgstr ""
+
+#: src/core_probe.rs
+msgid "el sistema no pudo cargar la DLL; puede faltarle una dependencia"
+msgstr ""
+
+#: src/cores.rs
+msgid "El core configurado corre {}, no {}. Elegí uno en Ajustes."
+msgstr ""
+
+#: src/i18n.rs
+msgid "Jugando: {}"
+msgstr ""
+
+#: src/install.rs
+msgid "Instalado: {}"
+msgstr ""
+
+#: src/install.rs
+msgid "El pack quedó instalado y auditado: completo y sin alterar. Aparece en el juego que declara, con la biblioteca ya al día."
+msgstr ""
+
+#: src/install.rs
+msgid "Actualizado: {}"
+msgstr ""
+
+#: src/install.rs
+msgid "El pack nuevo quedó instalado y auditado. La versión anterior quedó guardada: podés volver a ella desde acá o cuando quieras."
+msgstr ""
+
+#: src/install.rs
+msgid "No se instaló"
+msgstr ""
+
+#: src/install.rs
+msgid "El archivo no pasó la auditoría: {}. Lo que tenías instalado sigue intacto."
+msgstr ""
+
+#: src/install.rs
+msgid "No se pudo instalar"
+msgstr ""
+
+#: src/install.rs
+msgid "Falló el disco, no el pack: {}. Lo que tenías instalado sigue intacto."
+msgstr ""
+
+#: src/install.rs
+msgid "Se volvió a la versión anterior"
+msgstr ""
+
+#: src/install.rs
+msgid "La que estaba quedó guardada a su vez: revertir INTERCAMBIA, no borra, así que se puede volver a adelantar."
+msgstr ""
+
+#: src/install.rs
+msgid "No se pudo revertir"
+msgstr ""
+
+#: src/install.rs
+msgid "{}. El pack instalado no se tocó."
+msgstr ""
+
+#: src/main.rs
+msgid "{} juego en la biblioteca"
+msgstr ""
+
+#: src/main.rs
+msgid "{} juegos en la biblioteca"
+msgstr ""
+
+#: src/main.rs
+msgid "La última sesión de {} ({}) no registró su cierre. Play encontró su manifest."
+msgstr ""
+
+#: src/main.rs
+msgid "Savestate de salida"
+msgstr ""
+
+#: src/main.rs
+msgid "1 carpeta"
+msgstr ""
+
+#: src/main.rs
+msgid "{} carpetas"
+msgstr ""
+
+#: src/main.rs
+msgid "1 juego"
+msgstr ""
+
+#: src/main.rs
+msgid "{} juegos"
+msgstr ""
+
+#: src/main.rs
+msgid "1 core"
+msgstr ""
+
+#: src/main.rs
+msgid "{} cores"
+msgstr ""
+
+#: src/main.rs
+msgid "ninguna consola cubierta"
+msgstr ""
+
+#: src/main.rs
+msgid "Automático"
+msgstr ""
+
+#: src/main.rs
+msgid "De fábrica: flechas + Z X A S · el mando tal cual"
+msgstr ""
+
+#: src/main.rs
+msgid "Personalizados"
+msgstr ""
+
+#: src/main.rs
+msgid "Sin carpeta — valen los instalados y los que estén junto a la ROM"
+msgstr ""
+
+#: src/main.rs
+msgid "1 pack"
+msgstr ""
+
+#: src/main.rs
+msgid "{} packs"
+msgstr ""
+
+#: src/main.rs
+msgid "Listo: {} guardado(s) en {}"
+msgstr ""
+
+#: src/main.rs
+msgid "No se pudo exportar"
+msgstr ""
+
+#: src/main.rs
+msgid "La carpeta dejó de mirarse. Tus packs quedan donde están; los instalados no cambian."
+msgstr ""
+
+#: src/main.rs
+msgid "Sesión recuperada: {}"
+msgstr ""
+
+#: src/main.rs
+msgid "Nunca"
+msgstr ""
+
+#: src/main.rs
+msgid "sin revisión"
+msgstr ""
+
+#: src/main.rs
+msgid "Rev {}"
+msgstr ""
+
+#: src/main.rs
+msgid "Guardado {}"
+msgstr ""
+
+#: src/main.rs
+msgid "Leyendo el pack…"
+msgstr ""
+
+#: src/main.rs
+msgid "sin autor declarado"
+msgstr ""
+
+#: src/main.rs
+msgid "Restaurado el guardado de {}"
+msgstr ""
+
+#: src/main.rs
+msgid "No se pudo restaurar el guardado."
+msgstr ""
+
+#: src/main.rs
+msgid "{} ya está en juego (pid {})"
+msgstr ""
+
+#: src/main.rs
+msgid "Partida preparada"
+msgstr ""
+
+#: src/main.rs
+msgid "No se pudo preparar la partida"
+msgstr ""
+
+#: src/main.rs
+msgid "Abriendo el juego…"
+msgstr ""
+
+#: src/main.rs
+msgid "Esperando a que arranque…"
+msgstr ""
+
+#: src/main.rs
+msgid "No se pudo jugar: {}"
+msgstr ""
+
+#: src/main.rs
+msgid "Si vuelve a fallar, el diagnóstico redactado (sin rutas ni nombre de usuario) queda en {}."
+msgstr ""
+
+#: src/main.rs
+msgid "No se pudo escribir el diagnóstico de la sesión."
+msgstr ""
+
+#: src/main.rs
+msgid "{} s"
+msgstr ""
+
+#: src/main.rs
+msgid "{} min"
+msgstr ""
+
+#: src/main.rs
+msgid "ninguno"
+msgstr ""
+
+#: src/main.rs
+msgid "SRAM"
+msgstr ""
+
+#: src/main.rs
+msgid "1 estado"
+msgstr ""
+
+#: src/main.rs
+msgid "{} estados"
+msgstr ""
+
+#: src/main.rs
+msgid "SRAM + 1 estado"
+msgstr ""
+
+#: src/main.rs
+msgid "SRAM + {} estados"
+msgstr ""
+
+#: src/main.rs
+msgid "{} min jugados"
+msgstr ""
+
+#: src/main.rs
+msgid "Sin ROM conocidas"
+msgstr ""
+
+#: src/main.rs
+msgid "{} archivos"
+msgstr ""
+
+#: src/main.rs
+msgid "con pack HD"
+msgstr ""
+
+#: src/main.rs
+msgid "Jugado:"
+msgstr ""
+
+#: src/main.rs
+msgid "este juego"
+msgstr ""
+
+#: src/main.rs
+msgid "esta consola"
+msgstr ""
+
+#: src/main.rs
+msgid "el pack"
+msgstr ""
+
+#: src/main.rs
+msgid "de fábrica"
+msgstr ""
+
+#: src/main.rs
+msgid "Escaneo cancelado — {} juegos en la biblioteca"
+msgstr ""
+
+#: src/main.rs
+msgid "{} juego encontrado"
+msgstr ""
+
+#: src/main.rs
+msgid "{} juegos encontrados"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "AYTHER no distribuye ROMs ni cores, y no ayuda a conseguirlos: no incluye ninguno, no los descarga y no enlaza a ningún sitio que los ofrezca."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "BYOR — la ROM la ponés vos. Play lee los archivos de las carpetas que le indiques y nunca los copia, los mueve ni los sube. Tener derecho a usar esas copias es tuyo."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "BYOC — el core lo ponés vos. El emulador que ejecuta el juego es un programa de terceros que elegís e instalás vos; Play lo lanza en un proceso aparte y no lo modifica."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Un pack de remasterización no contiene partes del juego original. Aporta material propio de su autor —gráficos, sonido, video— que se aplica sobre tu copia mientras jugás: sin tu ROM no hay nada que jugar."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Nada de esto sale de tu máquina. En modo local, Play no envía tu biblioteca, tus guardados ni qué estás jugando."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Tu biblioteca retro, remasterizada. Vos ponés la ROM y nosotros el resto."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "PROBÁ TU MANDO"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "¿DÓNDE ESTÁN TUS JUEGOS?"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "ELEGÍ TU CORE"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "TÉRMINOS DE USO"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "TODO LISTO"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Español"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "English"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Predeterminado"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Agregá al menos una carpeta con tus ROM."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Marcá que entendés que las ROM y el core los ponés vos."
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Quitar"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Aceptar"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Comenzar"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Agregar"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Elegir otro"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Salir"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "{} · {} juegos"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Sin core"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Carpetas"
+msgstr ""
+
+#: src/onboarding.rs
+msgid "Core"
+msgstr ""
+
+#: src/verifier.rs
+msgid "Completo y sin alterar"
+msgstr ""
+
+#: src/verifier.rs
+msgid "No trae índice: no se puede auditar"
+msgstr ""
+
+#: src/verifier.rs
+msgid "El archivo no cierra"
+msgstr ""
+
+#: src/verifier.rs
+msgid "No es un pack .ay"
+msgstr ""
+
+msgid "El mapa de controles no es válido. Revisá Ajustes > Controles del juego."
+msgstr ""
