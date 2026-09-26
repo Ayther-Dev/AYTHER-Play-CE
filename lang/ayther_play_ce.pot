@@ -9,6 +9,49 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+msgid "No se reconoce la firma del pack"
+msgstr ""
+
+msgid "El pack está firmado, pero falta registrar su certificado de confianza en este equipo. Podés jugar sin el pack o configurar el certificado público de su autor."
+msgstr ""
+
+msgid "No se pudo cargar el pack"
+msgstr ""
+
+msgid "El sistema rechazó el pack al comprobarlo. Volvé a instalarlo desde una copia válida o elegí otro. También podés jugar al original sin el pack."
+msgstr ""
+
+msgid "No se pudo leer el certificado del pack"
+msgstr ""
+
+msgid "El archivo de certificados configurado no existe, no se puede leer o tiene un formato inválido. Revisá su ubicación. Podés jugar sin el pack mientras lo corregís."
+msgstr ""
+
+msgid "No se pudieron cargar los controles"
+msgstr ""
+
+msgid "No se pudo cargar el core"
+msgstr ""
+
+msgid "El emulador elegido no se pudo abrir. Revisá el core de esta consola en Ajustes y comprobá que sus archivos estén disponibles."
+msgstr ""
+
+msgid "No se pudo iniciar el juego"
+msgstr ""
+
+msgid "No se pudo iniciar el motor de juego. Revisá que AYTHER Runtime esté instalado y sea compatible con esta versión de Play."
+msgstr ""
+
+msgid "El juego no llegó a arrancar. El diagnóstico contiene los detalles del fallo. Podés probar el modo seguro, que desactiva las mejoras."
+msgstr ""
+
+msgid "La partida se interrumpió. Podés intentar reiniciarla en modo seguro; la ROM y los guardados existentes se conservan."
+msgstr ""
+
+msgid "Jugar sin pack"
+msgstr ""
+
+
 #: ui/appwindow.slint
 msgid "Espacio"
 msgstr ""
@@ -1198,4 +1241,19 @@ msgid "No es un pack .ay"
 msgstr ""
 
 msgid "El mapa de controles no es válido. Revisá Ajustes > Controles del juego."
+msgstr ""
+
+msgid "Cargando carátulas…"
+msgstr ""
+
+msgid "Buscando juegos…"
+msgstr ""
+
+msgid "Buscando packs…"
+msgstr ""
+
+msgid "Comprobando compatibilidad…"
+msgstr ""
+
+msgid "Buscando carátulas…"
 msgstr ""

@@ -1,0 +1,41 @@
+[package]
+name = "ayther_core"
+description = "AYTHER core — sprite/tile/audio hashers, .ay pack reader and validator, and the open authorship identity contract."
+version = "0.1.0"
+edition = "2024"
+authors = ["David Lazarte <david.lazarte@gmail.com>"]
+license = "MPL-2.0"
+repository = "https://github.com/Ayther-Dev/AYTHER-Engine"
+keywords    = ["retro", "emulation", "remaster", "megadrive", "assets"]
+categories  = ["game-development", "multimedia"]
+readme      = "README.md"
+
+[features]
+# Offline CE checks content integrity without asserting signer identity.
+# Explicit TrustStore calls retain the production signature policy.
+local-packs = []
+
+[lib]
+name = "ayther_core"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+cxx = { version = "1.0", features = ["c++17"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+mlua = { version = "0.9", features = ["lua54", "vendored"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+notify     = "6"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ed25519-dalek = { version = "2.0", features = ["rand_core"] }
+sha2 = "0.10"
+rustysynth = "1"
+lewton = "0.10"
+hound = "3.5"
+claxon = "0.4"
+
+[build-dependencies]
+cxx-build = "1.0"
+
+[dev-dependencies]
+tempfile = "3"

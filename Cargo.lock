@@ -531,7 +531,6 @@ dependencies = [
 [[package]]
 name = "ayther_core"
 version = "0.1.0"
-source = "git+https://github.com/Ayther-Dev/AYTHER-Engine?tag=v0.1.0-rc.6#091ee4ca088dca66837ee285d8a02dd5a1d90e86"
 dependencies = [
  "claxon",
  "cxx",
@@ -558,6 +557,7 @@ dependencies = [
  "dirs",
  "embed-resource",
  "gilrs",
+ "image",
  "quick-xml 0.38.4",
  "rayon",
  "serde",

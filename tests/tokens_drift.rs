@@ -211,10 +211,12 @@ fn no_pill_is_drawn_with_the_raw_token() {
         ui.contains("pure public function pill(w: length, h: length) -> length"),
         "appwindow.slint ya no declara `Shape.pill`"
     );
+    // The progress rail/fill now use Slint's ProgressIndicator. The five
+    // remaining custom pills still need the design-system helper.
     let usage_count = ui.matches("Shape.pill(").count();
     assert!(
-        usage_count >= 7,
-        "quedan {usage_count} píldoras por `Shape.pill` (había 7)"
+        usage_count >= 5,
+        "quedan {usage_count} píldoras por `Shape.pill` (se esperan al menos 5)"
     );
 }
 

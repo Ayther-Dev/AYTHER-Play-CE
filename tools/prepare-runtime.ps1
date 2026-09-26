@@ -25,7 +25,7 @@ $env:AYTHER_RUNTIME_SOURCE = $source
 if (-not $Integration) { return }
 if ($lock.status -ne 'available' -or -not $lock.asset_url -or -not $lock.asset_name -or
     $lock.sha256 -notmatch '^[a-fA-F0-9]{64}$' -or -not $lock.executable) {
-    throw 'Release integration BLOCKED: record the definitive beta.2 asset, SHA-256 and executable in tools/runtime-lock.json'
+    throw 'Release integration BLOCKED: record the versioned asset, SHA-256 and executable in tools/runtime-lock.json'
 }
 $tagCommit = git -C $source rev-parse ($lock.release_tag + '^{commit}')
 if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $lock.source_commit) { throw 'Runtime tag does not match the pinned source commit' }

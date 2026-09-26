@@ -17,3 +17,5 @@ jobs:
       - run: cargo check -p ayther_play_ce --all-targets --all-features --locked
       - run: cargo clippy -p ayther_play_ce --all-targets --all-features --locked -- -D warnings
       - run: cargo test -p ayther_play_ce --all-features --locked
+      # Signature policy previously differed between debug and release readers.
+      - run: cargo test -p ayther_play_ce --release --locked --test offline_packs

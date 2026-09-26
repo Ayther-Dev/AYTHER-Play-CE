@@ -113,6 +113,7 @@ pub enum Destructive {
     RemoveFolder,
     #[cfg_attr(not(test), allow(dead_code))]
     RemoveCore,
+    RemovePack,
     RedoWelcome,
 }
 
@@ -121,6 +122,7 @@ impl Destructive {
         match self {
             Destructive::RemoveFolder => "¿Quitar esta carpeta?",
             Destructive::RemoveCore => "¿Quitar este core?",
+            Destructive::RemovePack => "¿Desinstalar este pack?",
             Destructive::RedoWelcome => "¿Volver a ver la bienvenida?",
         }
     }
@@ -138,6 +140,9 @@ impl Destructive {
                 "No se borra el archivo del core. Los juegos de esa consola van a \
                  quedar sin core hasta que elijas otro."
             }
+            Destructive::RemovePack => {
+                "Se elimina el archivo del pack seleccionado y, si fue instalado por Play, su versión anterior. Tus ROMs, cores, guardados y otros packs se conservan."
+            }
             Destructive::RedoWelcome => {
                 "No se borra nada: ni tu biblioteca, ni tus carpetas, ni tus \
                  guardados. Volvés a pasar por los pasos y podés cambiar lo que \
@@ -153,6 +158,7 @@ impl Destructive {
         match self {
             Destructive::RemoveFolder => "Quitar la carpeta",
             Destructive::RemoveCore => "Quitar el core",
+            Destructive::RemovePack => "Desinstalar pack",
             Destructive::RedoWelcome => "Ver la bienvenida",
         }
     }

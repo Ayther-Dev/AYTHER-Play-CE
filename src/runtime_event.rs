@@ -57,6 +57,8 @@ pub enum RuntimeEvent {
     Warning {
         #[serde(default)]
         reason: String,
+        #[serde(default)]
+        message: String,
     },
     /// #600: la sesión no puede seguir. Lleva el motivo porque «error» a secas
     /// obliga al jugador a adivinar, y adivinar sobre un juego que no arrancó
@@ -64,6 +66,8 @@ pub enum RuntimeEvent {
     Error {
         #[serde(default)]
         reason: String,
+        #[serde(default)]
+        message: String,
     },
     /// La sesión terminó bien.
     Exit {
@@ -106,6 +110,19 @@ pub fn classify(line: &str) -> ParsedLine {
 mod tests {
     use super::*;
 
+    #[test]
+    fn startup_warning_retains_its_machine_reason_and_human_message() {
+        assert_eq!(
+            classify(
+                r#"AYTHER_STATUS {"protocol_version":1,"event":"warning","reason":"pack.open_failed","message":"cannot open pack"}"#
+            ),
+            ParsedLine::Event(RuntimeEvent::Warning {
+                reason: "pack.open_failed".into(),
+                message: "cannot open pack".into()
+            })
+        );
+    }
+
     fn ev(s: &str) -> RuntimeEvent {
         match classify(s) {
             ParsedLine::Event(e) => e,
@@ -138,13 +155,15 @@ mod tests {
         assert_eq!(
             ev(r#"AYTHER_STATUS {"event":"warning","reason":"el pack no trae musica"}"#),
             RuntimeEvent::Warning {
-                reason: "el pack no trae musica".into()
+                reason: "el pack no trae musica".into(),
+                message: String::new(),
             }
         );
         assert_eq!(
             ev(r#"AYTHER_STATUS {"event":"error","reason":"el core no cargo"}"#),
             RuntimeEvent::Error {
-                reason: "el core no cargo".into()
+                reason: "el core no cargo".into(),
+                message: String::new(),
             }
         );
         assert_eq!(

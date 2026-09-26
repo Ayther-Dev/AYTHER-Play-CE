@@ -9,6 +9,74 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+msgid "No se reconoce la firma del pack"
+msgstr "The pack signature is not recognized"
+
+msgid "El pack está firmado, pero falta registrar su certificado de confianza en este equipo. Podés jugar sin el pack o configurar el certificado público de su autor."
+msgstr "The pack is signed, but its trusted certificate has not been registered on this computer. You can play without the pack or configure its author's public certificate."
+
+msgid "No se pudo cargar el pack"
+msgstr "The pack could not be loaded"
+
+msgid "El sistema rechazó el pack al comprobarlo. Volvé a instalarlo desde una copia válida o elegí otro. También podés jugar al original sin el pack."
+msgstr "The system rejected the pack during verification. Reinstall it from a valid copy or choose another one. You can also play the original game without the pack."
+
+msgid "No se pudo leer el certificado del pack"
+msgstr "The pack certificate could not be read"
+
+msgid "El archivo de certificados configurado no existe, no se puede leer o tiene un formato inválido. Revisá su ubicación. Podés jugar sin el pack mientras lo corregís."
+msgstr "The configured certificate file is missing, unreadable, or invalid. Check its location. You can play without the pack while you fix it."
+
+msgid "No se pudieron cargar los controles"
+msgstr "The controls could not be loaded"
+
+msgid "No se pudo cargar el core"
+msgstr "The core could not be loaded"
+
+msgid "El emulador elegido no se pudo abrir. Revisá el core de esta consola en Ajustes y comprobá que sus archivos estén disponibles."
+msgstr "The selected emulator could not be opened. Check this console's core in Settings and make sure its files are available."
+
+msgid "No se pudo iniciar el juego"
+msgstr "The game could not be started"
+
+msgid "No se pudo iniciar el motor de juego. Revisá que AYTHER Runtime esté instalado y sea compatible con esta versión de Play."
+msgstr "The game engine could not be started. Check that AYTHER Runtime is installed and compatible with this version of Play."
+
+msgid "El juego no llegó a arrancar. El diagnóstico contiene los detalles del fallo. Podés probar el modo seguro, que desactiva las mejoras."
+msgstr "The game did not start. The diagnostic report contains details about the failure. You can try safe mode, which disables enhancements."
+
+msgid "La partida se interrumpió. Podés intentar reiniciarla en modo seguro; la ROM y los guardados existentes se conservan."
+msgstr "The game was interrupted. You can try restarting in safe mode; your ROM and existing saves are preserved."
+
+msgid "Jugar sin pack"
+msgstr "Play without pack"
+
+
+msgid "Cambiar pack"
+msgstr "Switch pack"
+
+msgid "Desinstalar pack"
+msgstr "Uninstall pack"
+
+msgid "↑ Instalar pack · → Cambiar pack · ↓ Desinstalar pack"
+msgstr "↑ Install pack · → Switch pack · ↓ Uninstall pack"
+
+msgid "¿Desinstalar este pack?"
+msgstr "Uninstall this pack?"
+
+msgid "Se elimina el archivo del pack seleccionado y, si fue instalado por Play, su versión anterior. Tus ROMs, cores, guardados y otros packs se conservan."
+msgstr "The selected pack file is deleted, along with its previous version if installed by Play. Your ROMs, cores, saves and other packs are preserved."
+
+msgid "Pack desinstalado."
+msgstr "Pack uninstalled."
+
+msgid "El pack ya no está en el disco."
+msgstr "The pack is no longer on disk."
+
+msgid "No se pudo desinstalar el pack: {}"
+msgstr "Could not uninstall the pack: {}"
+
+
 #: ui/appwindow.slint
 msgid "Espacio"
 msgstr "Space"
@@ -1199,3 +1267,33 @@ msgstr "Not an .ay pack"
 
 msgid "El mapa de controles no es válido. Revisá Ajustes > Controles del juego."
 msgstr "The control map is invalid. Check Settings > Game controls."
+
+msgid "Asignar carátula"
+msgstr "Assign cover art"
+
+msgid "ELEGÍ UNA CARÁTULA"
+msgstr "CHOOSE COVER ART"
+
+msgid "Elegí una imagen PNG, JPG o WebP."
+msgstr "Choose a PNG, JPG or WebP image."
+
+msgid "No se pudo abrir la imagen. Elegí otra carátula."
+msgstr "The image could not be opened. Choose another cover."
+
+msgid "El juego ya no está en la biblioteca."
+msgstr "The game is no longer in the library."
+
+msgid "Cargando carátulas…"
+msgstr "Loading covers…"
+
+msgid "Buscando juegos…"
+msgstr "Finding games…"
+
+msgid "Buscando packs…"
+msgstr "Finding packs…"
+
+msgid "Comprobando compatibilidad…"
+msgstr "Checking compatibility…"
+
+msgid "Buscando carátulas…"
+msgstr "Finding covers…"

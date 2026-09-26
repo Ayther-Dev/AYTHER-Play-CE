@@ -32,6 +32,14 @@ The current source tree includes:
 
 - a ten-foot Slint interface with keyboard and controller focus routing;
 - local library discovery, filtering, metadata, and No-Intro data support;
+- custom game covers: choose **Asignar carátula / Assign cover art** in a game's menu
+  and select a local PNG, JPG, or WebP image. Keep the image at its selected location;
+  the choice survives restarts and rescans. **Restaurar valores automáticos / Restore
+  automatic values** resets both the custom title and cover;
+- automatic covers beside the ROM: `Game.md` uses `Game.png`, `Game.jpg`,
+  `Game.jpeg`, or `Game.webp`, in that order (extensions are case-insensitive).
+  These take priority over images in the covers directory; a manually selected cover
+  takes priority over both. Restart or rescan with **F5** to discover new images;
 - runtime launch configuration, process supervision, and structured runtime-event handling;
 - local save, session, crash-recovery, diagnostics, import, and export workflows;
 - local `.ay` pack discovery, inspection, integrity auditing, installation, and rollback;
@@ -71,13 +79,13 @@ only from sources you trust.
 
 ## AYTHER dependencies
 
-Cargo resolves `ayther_core` directly from
-[AYTHER Engine v0.1.0-rc.6](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.6).
+Play uses [AYTHER Engine v0.1.0-rc.9](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.9),
+with the documented offline-reader patch in [`vendor/ayther_core/CE-PATCH.md`](vendor/ayther_core/CE-PATCH.md).
 No sibling Engine checkout is required.
 
-Play targets [Runtime v0.1.0-beta.2](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.2),
-published on 2026-09-05. The Windows AMD64 distribution and source commit
-`401cc3e4c0fdebe90e9eb5192ea21c48ec02e518` are pinned with the archive SHA-256 in
+Play targets [Runtime v0.1.0-beta.5](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.5),
+published on 2026-09-15. The Windows AMD64 distribution and source commit
+`428249701c7c9404fbb4a1308ee1cc3d46a3d32d` are pinned with the archive SHA-256 in
 [`tools/runtime-lock.json`](tools/runtime-lock.json). Real probe and invalid-map
 integration checks passed against that distributed binary.
 
@@ -143,6 +151,47 @@ semantics. That path must:
 Folder discovery is non-destructive. Removing a configured pack folder does not delete its
 files; its packs simply stop appearing in the library. When both an explicitly installed pack
 and a discovered pack match the same game, the installed copy takes precedence.
+
+## Public certificates for local packs
+
+If your Runtime requires signed packs, explicitly associate a pack with its author's
+public trust registry in `play_config.toml`. Play passes that registry to Runtime only
+when launching that pack; Runtime performs the signature verification. No private
+signing key is needed or read by Play.
+
+```toml
+[pack_trust_registries]
+'C:\Packs\example.ay' = 'C:\Certificates\example-trust.toml'
+```
+
+Use the installed pack's full path. Other packs and launches without a pack keep their
+existing behavior. A startup rejection is explained in the dialog; the redacted
+diagnostic preserves the Runtime reason and error details.
+
+## Startup responsiveness
+
+Play starts maximized on Home. Cover images load on a background worker, with
+progress visible across tabs. Home artwork is queued first. Thumbnails (up to
+1024 pixels per side) are cached under the Play configuration directory at
+`cache/covers`; replacing an image invalidates its thumbnail using file size and
+modification time. Removing this generated cache is safe; originals are preserved.
+Library scanning reports its current stage and coalesces repeated scan requests.
+
+To measure local startup work without launching games or modifying the library:
+
+```sh
+cargo test --bin ayther_play_ce profile_local_startup -- --ignored --nocapture
+```
+
+This opt-in measurement reads the configured library, compares source image loading
+with cold and cached thumbnails in a temporary directory, and times pack indexing
+and compatibility checks. Normal logs also record cover preparation and scan times.
+
+On Windows, `./tools/verify-window-startup.ps1` opens the compiled application,
+checks its native maximized state and monitor work-area coverage during loading,
+then verifies Restore and closes only that test instance. The default executable
+is `target/release/ayther_play_ce.exe`; pass `-Executable` to test another build.
+Results and startup logs are saved in `artifacts/window-startup`.
 
 ## Repository layout
 

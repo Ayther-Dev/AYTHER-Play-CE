@@ -20,7 +20,7 @@ pub struct SessionResult {
     pub clean_exit: bool,
     pub exit_code: Option<i32>,
     /// Stable startup failure reported by Runtime, if any.
-    pub failure_reason: String,
+    pub failure: crate::launch_failure::Failure,
     /// Path to the serialized savestate emitted by the runtime on clean exit
     /// (`AYTHER_STATUS {"event":"exit","savestate":"path"}`).
     /// Empty string if no savestate was written (crashed or disabled).
@@ -48,6 +48,7 @@ pub struct LaunchRequest<'a> {
     pub core: &'a Path,
     pub rom: &'a Path,
     pub pack: Option<&'a Path>,
+    pub trust_registry: Option<&'a Path>,
     pub game_name: String,
     // #311: lo que el jugador eligio en la pantalla previa. `None` = no
     // se configuro nada y manda el pack, que es lo que hacia antes de
@@ -101,6 +102,7 @@ pub fn launch<E, F>(
         core,
         rom,
         pack,
+        trust_registry,
         game_name,
         cfg,
         manifest,
@@ -116,6 +118,9 @@ pub fn launch<E, F>(
         && !p.as_os_str().is_empty()
     {
         cmd.args(["--pack", &p.to_string_lossy()]);
+        if let Some(registry) = trust_registry {
+            cmd.arg("--trust-registry").arg(registry);
+        }
     }
     // #311: la configuracion previa viaja como argumentos y no como un
     // archivo que el runtime tenga que encontrar: asi lo que se lanzo
@@ -160,7 +165,11 @@ pub fn launch<E, F>(
                 game_name,
                 clean_exit: false,
                 exit_code: None,
-                failure_reason: String::new(),
+                failure: crate::launch_failure::Failure {
+                    reason: "runtime.spawn_failed".into(),
+                    detail: crate::logging::redact(&e.to_string()),
+                    ..Default::default()
+                },
                 savestate_path: String::new(),
                 played_secs: 0,
             });
@@ -176,19 +185,25 @@ pub fn launch<E, F>(
     // Drain stdout on a background thread so the child pipe never fills.
     std::thread::spawn(move || {
         let mut savestate_path = String::new();
-        let mut failure_reason = String::new();
+        let mut failure = crate::launch_failure::Failure::default();
 
         // #600: el stderr se drena en SU hilo. Con uno solo, un stderr que se
         // llena mientras nadie lo lee bloquea al hijo — y el síntoma sería un
         // juego que se cuelga al arrancar, que es lo último que uno atribuiría
         // a un pipe.
-        if let Some(stderr) = child.stderr.take() {
+        let stderr_reader = child.stderr.take().map(|stderr| {
             std::thread::spawn(move || {
+                let mut diagnostic = String::new();
                 for l in BufReader::new(stderr).lines().map_while(Result::ok) {
                     eprintln!("[runtime!] {l}");
+                    if diagnostic.len() < 8192 {
+                        diagnostic.extend(l.chars().take(8192 - diagnostic.len()));
+                        diagnostic.push('\n');
+                    }
                 }
-            });
-        }
+                diagnostic
+            })
+        });
 
         if let Some(stdout) = child.stdout.take() {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -200,17 +215,7 @@ pub fn launch<E, F>(
                 // simplemente no guardaba.
                 match crate::runtime_event::classify(&line) {
                     crate::runtime_event::ParsedLine::Event(e) => {
-                        match &e {
-                            crate::runtime_event::RuntimeEvent::Warning { reason }
-                                if reason == "input.map_invalid" =>
-                            {
-                                failure_reason = reason.clone()
-                            }
-                            crate::runtime_event::RuntimeEvent::Error { reason } => {
-                                failure_reason = reason.clone()
-                            }
-                            _ => {}
-                        }
+                        failure.observe(&e);
                         if let crate::runtime_event::RuntimeEvent::Exit { savestate } = &e {
                             savestate_path = savestate.clone();
                         }
@@ -229,9 +234,14 @@ pub fn launch<E, F>(
         }
 
         // Reap the child.
-        let result = match child.wait() {
+        let exit = child.wait();
+        let stderr = stderr_reader
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        failure.finish(exit.as_ref().ok().and_then(|status| status.code()), &stderr);
+        let result = match exit {
             Ok(status) => {
-                let clean = status.success() && failure_reason.is_empty();
+                let clean = status.success() && !failure.explicit_error;
                 let code = status.code();
                 if clean {
                     eprintln!("[play] Session ended cleanly.");
@@ -245,7 +255,7 @@ pub fn launch<E, F>(
                     game_name,
                     clean_exit: clean,
                     exit_code: code,
-                    failure_reason,
+                    failure,
                     savestate_path,
                     played_secs: started.elapsed().as_secs(),
                 }
@@ -256,7 +266,7 @@ pub fn launch<E, F>(
                     game_name,
                     clean_exit: false,
                     exit_code: None,
-                    failure_reason,
+                    failure,
                     savestate_path: String::new(),
                     played_secs: started.elapsed().as_secs(),
                 }
@@ -289,8 +299,8 @@ fn record(e: &crate::runtime_event::RuntimeEvent) {
         ),
         // Un warning NO corta la sesión: tratarlo como error cerraría una
         // partida que estaba andando.
-        E::Warning { reason } => eprintln!("[play] aviso del runtime: {reason}"),
-        E::Error { reason } => eprintln!("[play] ERROR del runtime: {reason}"),
+        E::Warning { reason, .. } => eprintln!("[play] aviso del runtime: {reason}"),
+        E::Error { reason, .. } => eprintln!("[play] ERROR del runtime: {reason}"),
         E::Exit { savestate } => eprintln!(
             "[play] sesión terminada{}",
             if savestate.is_empty() {
@@ -306,6 +316,61 @@ fn record(e: &crate::runtime_event::RuntimeEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "integration: requires the pinned distributed AYTHER_RUNTIME_EXE"]
+    fn registry_is_forwarded_only_with_a_pack_and_startup_rejections_are_preserved() {
+        let runtime = std::path::PathBuf::from(
+            std::env::var_os("AYTHER_RUNTIME_EXE").expect("AYTHER_RUNTIME_EXE is required"),
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let missing_registry = temp.path().join("missing registry.toml");
+        let missing_map = temp.path().join("missing map.toml");
+        for (pack, registry, expected) in [
+            (
+                Some(Path::new("missing.ay")),
+                Some(missing_registry.as_path()),
+                "pack.trust_registry_invalid",
+            ),
+            (Some(Path::new("missing.ay")), None, "pack.open_failed"),
+            (None, Some(missing_registry.as_path()), "input.map_invalid"),
+        ] {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            launch(
+                LaunchRequest {
+                    runtime: &runtime,
+                    core: Path::new("unused-core"),
+                    rom: Path::new("unused-rom"),
+                    pack,
+                    trust_registry: registry,
+                    game_name: "startup regression".into(),
+                    cfg: None,
+                    manifest: None,
+                    saves_dir: temp.path(),
+                    rom_crc32: "",
+                    input_map: Some(&missing_map),
+                    save: None,
+                },
+                |_| {},
+                move |result| {
+                    sender.send(result).unwrap();
+                },
+            );
+            let result = receiver
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .unwrap();
+            assert!(!result.clean_exit);
+            assert!(!result.failure.started);
+            assert_eq!(result.failure.reason, expected);
+            assert!(!result.failure.detail.is_empty());
+            assert!(
+                !result
+                    .failure
+                    .detail
+                    .contains(&temp.path().to_string_lossy().to_string())
+            );
+        }
+    }
 
     #[test]
     #[ignore = "integration: requires the pinned distributed AYTHER_RUNTIME_EXE"]
@@ -333,6 +398,7 @@ mod tests {
                     core: Path::new("unused-core"),
                     rom: Path::new("unused-rom"),
                     pack: None,
+                    trust_registry: None,
                     game_name: "input map regression".into(),
                     cfg: None,
                     manifest: None,
@@ -353,7 +419,7 @@ mod tests {
                 .expect("Runtime must fail promptly");
             assert!(!result.clean_exit);
             assert_eq!(result.exit_code, Some(78));
-            assert_eq!(result.failure_reason, "input.map_invalid");
+            assert_eq!(result.failure.reason, "input.map_invalid");
             assert!(result.savestate_path.is_empty());
             assert!(!events.try_iter().any(|event| matches!(
                 event,

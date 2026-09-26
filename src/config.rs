@@ -113,6 +113,10 @@ pub struct Config {
     /// agregan a mano al TOML y el escaneo las lee todas, en orden.
     #[serde(default)]
     pub pack_dirs: Vec<PathBuf>,
+    /// Explicit public registries for individual pack paths. Passed to Runtime;
+    /// Play CE neither discovers private keys nor authenticates signers itself.
+    #[serde(default)]
+    pub pack_trust_registries: std::collections::BTreeMap<PathBuf, PathBuf>,
     /// Los controles del JUEGO: qué tecla y qué botón hace cada acción del
     /// RetroPad en la partida (Ajustes › Controles del juego). Sólo lo
     /// distinto de fábrica, por clave del contrato (`controls.rs`); vacío =
@@ -210,6 +214,10 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
         let env = std::env::var_os("AYTHER_RUNTIME").map(PathBuf::from);
         Self::runtime_at(&self.runtime_path, &exe_dir, env.as_deref())
+    }
+
+    pub fn pack_trust_registry(&self, pack: Option<&Path>) -> Option<&Path> {
+        self.pack_trust_registries.get(pack?).map(PathBuf::as_path)
     }
 
     /// El nombre del ejecutable del runtime en esta plataforma.
@@ -348,6 +356,7 @@ impl Config {
             lib_path: data_dir.join("library.json"),
             packs_install_dir: data_dir.join("packs"),
             pack_dirs: Vec::new(),
+            pack_trust_registries: Default::default(),
             control_keys: Default::default(),
             control_buttons: Default::default(),
             log: "info".into(),
@@ -439,6 +448,26 @@ pub fn resolve_core(cfg: &Config, game_path: &Path) -> PathBuf {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn public_registry_is_saved_and_only_used_for_its_selected_pack() {
+        let mut config = Config::defaults();
+        let pack = PathBuf::from("packs/Golden Axe.ay");
+        let registry = PathBuf::from("certificates/golden-axe.toml");
+        config
+            .pack_trust_registries
+            .insert(pack.clone(), registry.clone());
+        let restored: Config = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(
+            restored.pack_trust_registry(Some(&pack)),
+            Some(registry.as_path())
+        );
+        assert_eq!(
+            restored.pack_trust_registry(Some(Path::new("packs/other.ay"))),
+            None
+        );
+        assert_eq!(restored.pack_trust_registry(None), None);
+    }
 
     /// El runtime también se encuentra en el ÁRBOL DE DESARROLLO.
     ///

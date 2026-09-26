@@ -279,6 +279,50 @@ pub enum UninstallResult {
     Io(String),
 }
 
+/// Remove an unreadable or incompatible pack as well. Managed installs include
+/// their previous version; external packs remove only the selected file.
+pub fn uninstall_path(packs_dir: &Path, path: &Path) -> UninstallResult {
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    if !["ay", "ae"]
+        .iter()
+        .any(|ext| extension.eq_ignore_ascii_case(ext))
+    {
+        return UninstallResult::Io("el archivo no es un pack .ay o .ae".into());
+    }
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return UninstallResult::NotInstalled,
+        Err(e) => return UninstallResult::Io(e.to_string()),
+    };
+    if !metadata.file_type().is_file() {
+        return UninstallResult::Io("el pack no es un archivo regular".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return UninstallResult::Io("el pack es un reparse point".into());
+        }
+    }
+    if let (Ok(root), Ok(resolved)) = (packs_dir.canonicalize(), path.canonicalize())
+        && resolved.parent() == Some(root.as_path())
+        && let Some(id) = path.file_stem().and_then(|s| s.to_str())
+        && extension == "ay"
+        && validate_pack_id(id).is_ok()
+    {
+        return uninstall(&root, id);
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => UninstallResult::Uninstalled {
+            had_previous: false,
+        },
+        Err(e) => UninstallResult::Io(e.to_string()),
+    }
+}
+
 /// Saca un pack instalado — **y sólo el pack** (#614).
 ///
 /// La ROM es del jugador y vive donde él la puso; el core también; los
@@ -316,6 +360,78 @@ pub fn uninstall(packs_dir: &Path, pack_id: &str) -> UninstallResult {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn installing_two_packs_for_the_same_game_keeps_both_until_one_is_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let packs = tmp.path().join("installed");
+        let first = valid_pack(tmp.path(), "first.ay", "first");
+        let second = valid_pack(tmp.path(), "second.ay", "second");
+        for (id, source) in [("first", &first), ("second", &second)] {
+            assert_eq!(
+                install_local(&packs, id, source),
+                InstallResult::Installed { replaced: false }
+            );
+        }
+        assert_eq!(mark_of(&installed_path(&packs, "first")), "first");
+        assert_eq!(mark_of(&installed_path(&packs, "second")), "second");
+        assert!(matches!(
+            uninstall_path(&packs, &installed_path(&packs, "first")),
+            UninstallResult::Uninstalled { .. }
+        ));
+        assert_eq!(mark_of(&installed_path(&packs, "second")), "second");
+        assert!(
+            first.exists() && second.exists(),
+            "installation sources must be preserved"
+        );
+    }
+
+    #[test]
+    fn removing_an_unusable_pack_preserves_other_packs_and_game_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let packs = tmp.path().join("packs");
+        std::fs::create_dir(&packs).unwrap();
+        let broken = packs.join("broken.ay");
+        std::fs::write(&broken, b"invalid archive").unwrap();
+        std::fs::write(packs.join("broken.ay.prev"), b"old").unwrap();
+        let other = valid_pack(&packs, "other.ay", "other");
+        let rom = tmp.path().join("game.md");
+        let save = tmp.path().join("game.srm");
+        std::fs::write(&rom, b"rom").unwrap();
+        std::fs::write(&save, b"save").unwrap();
+
+        assert!(matches!(
+            uninstall_path(&packs, &broken),
+            UninstallResult::Uninstalled { had_previous: true }
+        ));
+        assert!(!broken.exists());
+        assert!(!packs.join("broken.ay.prev").exists());
+        assert_eq!(mark_of(&other), "other");
+        assert_eq!(std::fs::read(rom).unwrap(), b"rom");
+        assert_eq!(std::fs::read(save).unwrap(), b"save");
+    }
+
+    #[test]
+    fn removing_external_packs_uses_the_exact_path_and_rejects_roms() {
+        let tmp = tempfile::tempdir().unwrap();
+        let managed = tmp.path().join("managed");
+        for name in ["Juego español.AY", "legacy.ae"] {
+            let path = tmp.path().join(name);
+            std::fs::write(&path, b"unusable").unwrap();
+            assert!(matches!(
+                uninstall_path(&managed, &path),
+                UninstallResult::Uninstalled { .. }
+            ));
+            assert!(!path.exists());
+        }
+        let rom = tmp.path().join("game.md");
+        std::fs::write(&rom, b"rom").unwrap();
+        assert!(matches!(
+            uninstall_path(&managed, &rom),
+            UninstallResult::Io(_)
+        ));
+        assert!(rom.exists());
+    }
 
     #[test]
     fn invalid_ids_cannot_mutate_any_lifecycle_path() {
@@ -654,5 +770,27 @@ name = \"a medias\"
         assert_eq!(mark_of(&installed_path(&packs, "ga")), "v2");
         // Idempotente: descartar dos veces no es un error.
         discard_previous(&packs, "ga").unwrap();
+    }
+
+    /// Opt-in smoke test for a user's pack; installs only in a temporary folder.
+    #[test]
+    #[ignore = "set AYTHER_TEST_PACK to an existing local .ay file"]
+    fn real_local_pack_installs_and_exposes_metadata() {
+        let source = PathBuf::from(std::env::var_os("AYTHER_TEST_PACK").expect("AYTHER_TEST_PACK"));
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            install_local(tmp.path(), "local-smoke", &source),
+            InstallResult::Installed { replaced: false }
+        );
+        let installed = installed_path(tmp.path(), "local-smoke");
+        assert_eq!(
+            crate::pack_meta::read(&installed).0,
+            crate::pack_meta::PackStatus::Ok
+        );
+        assert!(crate::verifier::audit(&installed).is_installable());
+        assert_eq!(
+            std::fs::read(&source).unwrap(),
+            std::fs::read(&installed).unwrap()
+        );
     }
 }

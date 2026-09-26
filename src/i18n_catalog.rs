@@ -9,6 +9,78 @@
 pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
     match lang {
         "en" => match msgid {
+            "Cargando carátulas…" => Some("Loading covers…"),
+            "Buscando juegos…" => Some("Finding games…"),
+            "Buscando packs…" => Some("Finding packs…"),
+            "Comprobando compatibilidad…" => Some("Checking compatibility…"),
+            "Buscando carátulas…" => Some("Finding covers…"),
+            "No se reconoce la firma del pack" => Some("The pack signature is not recognized"),
+            "El pack está firmado, pero falta registrar su certificado de confianza en este equipo. Podés jugar sin el pack o configurar el certificado público de su autor." => {
+                Some(
+                    "The pack is signed, but its trusted certificate has not been registered on this computer. You can play without the pack or configure its author's public certificate.",
+                )
+            }
+            "No se pudo cargar el pack" => Some("The pack could not be loaded"),
+            "El sistema rechazó el pack al comprobarlo. Volvé a instalarlo desde una copia válida o elegí otro. También podés jugar al original sin el pack." => {
+                Some(
+                    "The system rejected the pack during verification. Reinstall it from a valid copy or choose another one. You can also play the original game without the pack.",
+                )
+            }
+            "No se pudo leer el certificado del pack" => {
+                Some("The pack certificate could not be read")
+            }
+            "El archivo de certificados configurado no existe, no se puede leer o tiene un formato inválido. Revisá su ubicación. Podés jugar sin el pack mientras lo corregís." => {
+                Some(
+                    "The configured certificate file is missing, unreadable, or invalid. Check its location. You can play without the pack while you fix it.",
+                )
+            }
+            "No se pudieron cargar los controles" => Some("The controls could not be loaded"),
+            "No se pudo cargar el core" => Some("The core could not be loaded"),
+            "El emulador elegido no se pudo abrir. Revisá el core de esta consola en Ajustes y comprobá que sus archivos estén disponibles." => {
+                Some(
+                    "The selected emulator could not be opened. Check this console's core in Settings and make sure its files are available.",
+                )
+            }
+            "No se pudo iniciar el juego" => Some("The game could not be started"),
+            "No se pudo iniciar el motor de juego. Revisá que AYTHER Runtime esté instalado y sea compatible con esta versión de Play." => {
+                Some(
+                    "The game engine could not be started. Check that AYTHER Runtime is installed and compatible with this version of Play.",
+                )
+            }
+            "El juego no llegó a arrancar. El diagnóstico contiene los detalles del fallo. Podés probar el modo seguro, que desactiva las mejoras." => {
+                Some(
+                    "The game did not start. The diagnostic report contains details about the failure. You can try safe mode, which disables enhancements.",
+                )
+            }
+            "La partida se interrumpió. Podés intentar reiniciarla en modo seguro; la ROM y los guardados existentes se conservan." => {
+                Some(
+                    "The game was interrupted. You can try restarting in safe mode; your ROM and existing saves are preserved.",
+                )
+            }
+            "Jugar sin pack" => Some("Play without pack"),
+            "Cambiar pack" => Some("Switch pack"),
+            "Desinstalar pack" => Some("Uninstall pack"),
+            "↑ Instalar pack · → Cambiar pack · ↓ Desinstalar pack" => {
+                Some("↑ Install pack · → Switch pack · ↓ Uninstall pack")
+            }
+            "¿Desinstalar este pack?" => Some("Uninstall this pack?"),
+            "Se elimina el archivo del pack seleccionado y, si fue instalado por Play, su versión anterior. Tus ROMs, cores, guardados y otros packs se conservan." => {
+                Some(
+                    "The selected pack file is deleted, along with its previous version if installed by Play. Your ROMs, cores, saves and other packs are preserved.",
+                )
+            }
+            "Pack desinstalado." => Some("Pack uninstalled."),
+            "El pack ya no está en el disco." => Some("The pack is no longer on disk."),
+            "No se pudo desinstalar el pack: {}" => Some("Could not uninstall the pack: {}"),
+            "Asignar carátula" => Some("Assign cover art"),
+            "ELEGÍ UNA CARÁTULA" => Some("CHOOSE COVER ART"),
+            "Elegí una imagen PNG, JPG o WebP." => Some("Choose a PNG, JPG or WebP image."),
+            "No se pudo abrir la imagen. Elegí otra carátula." => {
+                Some("The image could not be opened. Choose another cover.")
+            }
+            "El juego ya no está en la biblioteca." => {
+                Some("The game is no longer in the library.")
+            }
             "El mapa de controles no es válido. Revisá Ajustes > Controles del juego." => {
                 Some("The control map is invalid. Check Settings > Game controls.")
             }

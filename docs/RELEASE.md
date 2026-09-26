@@ -5,8 +5,9 @@ and Visual Studio 2022 Build Tools with Desktop development with C++ and a Windo
 SDK (linker and resource compiler). Release integration also uses GitHub CLI (`gh`)
 with repository read access; GitHub Actions supplies its standard `GH_TOKEN`.
 `rust-toolchain.toml` selects Rust 1.95.0,
-rustfmt and Clippy. Allow Cargo network access on first use for locked crates and
-Engine `v0.1.0-rc.6`; no sibling Engine checkout is required. UI, translations and
+rustfmt and Clippy. Allow Cargo network access on first use for locked crates.
+Engine `v0.1.0-rc.9` is vendored with the documented CE offline-reader patch;
+no sibling Engine checkout is required. UI, translations and
 fonts are embedded by the build. Other platforms are not release-validated here.
 
 From a fresh Play clone in PowerShell:
@@ -31,10 +32,10 @@ Release validation additionally requires:
 
 ```powershell
 ./tools/prepare-runtime.ps1 -Integration
-cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored
+cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored --skip real_local_pack_installs_and_exposes_metadata
 ```
 
-The release workflow runs on version tags or manual dispatch. Beta.2's published
+The release workflow runs on version tags or manual dispatch. Beta.5's published
 Windows AMD64 artifact, source commit, URL, SHA-256 and executable path are fixed
 in `tools/runtime-lock.json`. For a future upgrade, review and update all fields;
 pending or incomplete metadata must fail release validation. Do not substitute a
@@ -47,7 +48,7 @@ Play's process launcher. They do not close the manual game checks below:
 
 1. Supply a core and game whose use is authorized; record their versions and
    SHA-256 without committing personal game data.
-2. Start Play against the distributed beta.2 Runtime, restore default controls,
+2. Start Play against the distributed beta.5 Runtime, restore default controls,
    launch a game, verify keyboard and controller input and a clean exit.
 3. Swap keyboard and controller assignments in Play, put the generated map in a
    path containing spaces, and verify each changed action inside the game. Save

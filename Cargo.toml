@@ -29,6 +29,7 @@ slint-build = "1.16"
 # Windows compila libintl desde fuente con autotools. Un launcher que no se
 # puede clonar y compilar no es un launcher.
 slint = "1.16"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 
 # ---- Biblioteca ----------------------------------------------------------
 serde      = { version = "1", features = ["derive"] }
@@ -48,7 +49,12 @@ tempfile   = "3"
 # resuelve el core, que es el mismo lector que usa el Runtime.
 zip        = "2"
 sha2       = "0.10"
-ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.6", version = "0.1" }
+ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.9", version = "0.1", features = ["local-packs"] }
+
+# Upstream rc.9 couples release reads to signer trust, which CE does not provide.
+# Keep the scoped offline-reader patch reproducible; see vendor/ayther_core/CE-PATCH.md.
+[patch."https://github.com/Ayther-Dev/AYTHER-Engine"]
+ayther_core = { path = "vendor/ayther_core" }
 
 # LO QUE NO ESTÁ, Y ES LA DIFERENCIA CON LA EDICIÓN PAGA:
 #

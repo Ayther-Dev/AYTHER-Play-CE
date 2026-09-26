@@ -27,6 +27,7 @@ use crate::gamepad::PadAction;
 /// ES la precedencia: lo más modal primero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
+    Confirmation,
     /// El Runtime tiene la pantalla: Play no escucha nada.
     Playing,
     /// #588 — el explorador de archivos del onboarding, encima del wizard.
@@ -72,6 +73,7 @@ pub enum Surface {
 /// propiedades de `AppWindow`, para poder razonar (y testear) sin Slint.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct State {
+    pub confirm_open: bool,
     pub playing: bool,
     /// #588 — el wizard de primer arranque está en pantalla.
     pub onboarding: bool,
@@ -169,6 +171,11 @@ pub enum Effect {
     ControlsClose,
     // #604 — la ficha y su historial
     PlayFromDetails,
+    InstallFromDetails,
+    NextPack,
+    UninstallPack,
+    ConfirmAccept,
+    ConfirmCancel,
     NewGame,
     SaveRowAt(i32),
     RestoreSave(i32),
@@ -207,6 +214,9 @@ pub fn surface(e: &State) -> Surface {
     use Surface::*;
     if e.playing {
         return Playing;
+    }
+    if e.confirm_open {
+        return Confirmation;
     }
     // El wizard tapa todo lo demás: mientras está, no hay biblioteca detrás.
     if e.onboarding {
@@ -391,6 +401,9 @@ pub fn route(e: &State, a: PadAction) -> Effect {
         // continúa, según haya guardado— Y empieza una partida nueva, X
         // cambia HD/original, G abre el historial y B cierra.
         GameDetails => match a {
+            Up => F::InstallFromDetails,
+            Right => F::NextPack,
+            Down => F::UninstallPack,
             Accept | Start => F::PlayFromDetails,
             Menu => F::NewGame,
             // #627 — X alterna Original/HD, que es lo que el pie de la ficha
@@ -398,6 +411,12 @@ pub fn route(e: &State, a: PadAction) -> Effect {
             // linea el pie prometia un boton que el mando no ruteaba.
             SecondaryAction => F::ToggleHD,
             Back => F::CloseDetails,
+            _ => F::NoOp,
+        },
+
+        Confirmation => match a {
+            Start => F::ConfirmAccept,
+            Back => F::ConfirmCancel,
             _ => F::NoOp,
         },
 
@@ -540,6 +559,7 @@ pub fn hints(e: &State) -> &'static str {
     use Surface::*;
     match surface(e) {
         Playing => "jugando",
+        Confirmation => "confirmar",
         Explorer => "explorador",
         Onboarding => "onboarding",
         Crash => "crash",
@@ -567,6 +587,22 @@ mod tests {
     use super::Effect as F;
     use super::*;
     use crate::gamepad::PadAction::*;
+
+    #[test]
+    fn pack_management_and_confirmation_are_reachable_with_a_controller() {
+        let mut state = State {
+            details_open: true,
+            ..Default::default()
+        };
+        assert_eq!(route(&state, Up), F::InstallFromDetails);
+        assert_eq!(route(&state, Right), F::NextPack);
+        assert_eq!(route(&state, Down), F::UninstallPack);
+        state.confirm_open = true;
+        assert_eq!(route(&state, Accept), F::NoOp);
+        assert_eq!(route(&state, Start), F::ConfirmAccept);
+        assert_eq!(route(&state, Back), F::ConfirmCancel);
+        assert_eq!(route(&state, Down), F::NoOp);
+    }
 
     /// #594: la Biblioteca pasó a ser la sección **1** — Inicio es la 0. El
     /// helper lo dice explícito para que ningún test dependa del default.

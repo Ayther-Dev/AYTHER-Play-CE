@@ -22,4 +22,5 @@ jobs:
           "AYTHER_TEST_CORE=$env:AYTHER_TEST_CORE" >> $env:GITHUB_ENV
       - run: cargo test -p ayther_play_ce --all-features --locked
       - name: Required real process checks (no dependency skips)
-        run: cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored
+        # The manual pack smoke test requires a user-owned, undistributed .ay.
+        run: cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored --skip real_local_pack_installs_and_exposes_metadata

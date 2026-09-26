@@ -171,6 +171,9 @@ impl Game {
         self.has_pack = new.has_pack;
         self.pack_path = new.pack_path.clone();
         self.pack_status = new.pack_status;
+        self.available_packs.clone_from(&new.available_packs);
+        self.compat_reason.clone_from(&new.compat_reason);
+        self.compat_codes.clone_from(&new.compat_codes);
         self.cover_path = new.cover_path.clone();
         self.size_bytes = new.size_bytes;
         self.mtime = new.mtime;
@@ -242,7 +245,7 @@ pub struct Game {
     pub mtime: i64,
 
     /// #634: TODOS los packs que este juego tiene disponibles, en orden de
-    /// precedencia. `pack_path` es el primero de esta lista.
+    /// precedencia. `pack_path` es el seleccionado, o el primero por defecto.
     ///
     /// Son dos y no uno porque hay dos lugares de donde puede venir un pack: al
     /// lado de la ROM —el que el jugador copió a mano— y el directorio de
@@ -721,12 +724,24 @@ pub fn attach_installed_packs(games: &mut [Game], packs: &[InstalledPack]) {
 /// respuesta honesta. Lo aporta el sondeo del core (#589), cacheado una vez por
 /// sesión — sondear por juego sería lanzar un proceso por tarjeta.
 pub fn enrich_pack_status(games: &mut [Game], core_build_id: Option<&str>) {
+    enrich_pack_status_progress(games, core_build_id, &|_, _| {});
+}
+
+/// Report checked entries. Complete their grades before publishing a partial scan.
+pub fn enrich_pack_status_progress(
+    games: &mut [Game],
+    core_build_id: Option<&str>,
+    progress: &dyn Fn(usize, usize),
+) {
     use ayther_core::pack_validate::{SessionCtx, compat_grade};
-    for g in games.iter_mut() {
+    let total = games.len();
+    progress(0, total);
+    for (index, g) in games.iter_mut().enumerate() {
         if !g.has_pack || g.pack_path.is_empty() {
             g.pack_status = PackStatus::NoPack;
             g.compat_reason = String::new();
             g.compat_codes.clear();
+            progress(index + 1, total);
             continue;
         }
         let ctx = SessionCtx {
@@ -749,6 +764,7 @@ pub fn enrich_pack_status(games: &mut [Game], core_build_id: Option<&str>) {
             .filter(|f| ayther_core::pack_validate::affects_compatibility(f.code))
             .map(|f| f.code.to_string())
             .collect();
+        progress(index + 1, total);
     }
 }
 
@@ -758,16 +774,13 @@ pub fn enrich_pack_status(games: &mut [Game], core_build_id: Option<&str>) {
 
 /// Discover a cover art image path for each game.  Checked in this order:
 ///
-///   1. `{covers_dir}/{CRC32}.png`
-///   2. `{covers_dir}/{CRC32}.jpg`
-///   3. `{covers_dir}/{slug}.png`   (slug = lowercase name, spaces→underscores)
-///   4. `{covers_dir}/{slug}.jpg`
+///   1. Image beside the ROM with the same file stem (PNG, JPG, JPEG, WebP).
+///   2. `{covers_dir}/{CRC32}.{ext}` in the same format order.
+///   3. `{covers_dir}/{slug}.{ext}` (slug = sanitized lowercase name).
 ///
 /// Sets `game.cover_path` to the first match found (empty string if none).
+/// Manual choices remain separate in `user_art` and take precedence in `artwork()`.
 pub fn find_covers(games: &mut [Game], covers_dir: &Path) {
-    if !covers_dir.exists() {
-        return;
-    }
     for g in games.iter_mut() {
         g.cover_path = find_cover_path(g, covers_dir)
             .map(|p| p.to_string_lossy().into_owned())
@@ -776,11 +789,35 @@ pub fn find_covers(games: &mut [Game], covers_dir: &Path) {
 }
 
 fn find_cover_path(game: &Game, dir: &Path) -> Option<PathBuf> {
+    let rom = Path::new(&game.path);
+    if let (Some(parent), Some(stem)) = (rom.parent(), rom.file_stem())
+        && let Ok(entries) = std::fs::read_dir(parent)
+    {
+        // Directory enumeration order is unspecified. Rank formats, then paths,
+        // so rescans cannot randomly change the selected cover.
+        let adjacent = entries
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.file_stem() != Some(stem) || !path.is_file() {
+                    return None;
+                }
+                let ext = path.extension()?.to_str()?;
+                let rank = ["png", "jpg", "jpeg", "webp"]
+                    .iter()
+                    .position(|candidate| ext.eq_ignore_ascii_case(candidate))?;
+                Some((rank, path))
+            })
+            .min();
+        if let Some((_, path)) = adjacent {
+            return Some(path);
+        }
+    }
     // By CRC32
     if !game.crc32.is_empty() {
         for ext in &["png", "jpg", "jpeg", "webp"] {
             let p = dir.join(format!("{}.{}", game.crc32, ext));
-            if p.exists() {
+            if p.is_file() {
                 return Some(p);
             }
         }
@@ -792,7 +829,7 @@ fn find_cover_path(game: &Game, dir: &Path) -> Option<PathBuf> {
         .replace(|c: char| !c.is_alphanumeric() && c != '-', "_");
     for ext in &["png", "jpg", "jpeg", "webp"] {
         let p = dir.join(format!("{slug}.{ext}"));
-        if p.exists() {
+        if p.is_file() {
             return Some(p);
         }
     }
@@ -836,6 +873,24 @@ impl Library {
     /// para saltear lo que no cambió.
     pub fn known_games(&self) -> &HashMap<String, Game> {
         &self.data.games
+    }
+
+    /// Restore selection after discovery and before grading the selected pack.
+    pub fn restore_pack_selection(&self, games: &mut [Game]) {
+        for game in games {
+            let previous = self.data.games.get(&game.path).or_else(|| {
+                self.data.games.values().find(|old| {
+                    !game.crc32.is_empty()
+                        && old.crc32 == game.crc32
+                        && !Path::new(&old.path).exists()
+                })
+            });
+            if let Some(previous) = previous
+                && game.available_packs.contains(&previous.pack_path)
+            {
+                game.pack_path.clone_from(&previous.pack_path);
+            }
+        }
     }
 
     /// Merge scan results and persist.
@@ -990,6 +1045,55 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adjacent_covers_work_without_a_covers_directory_and_keep_manual_choices() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = rom_in(dir.path(), "Game (USA).md", b"rom");
+        let image = dir.path().join("Game (USA).JPG");
+        std::fs::write(&image, b"image").unwrap();
+        let mut games = vec![scan_one(&rom, &HashMap::new()).unwrap()];
+        games[0].user_art = Some("manual.webp".into());
+        find_covers(&mut games, &dir.path().join("missing"));
+        assert_eq!(games[0].cover_path, image.to_string_lossy());
+        assert_eq!(games[0].artwork(), "manual.webp");
+        games[0].user_art = None;
+        assert_eq!(games[0].artwork(), image.to_string_lossy());
+    }
+
+    #[test]
+    fn adjacent_covers_use_a_stable_format_order_before_the_covers_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = rom_in(dir.path(), "Game.md", b"rom");
+        let game = scan_one(&rom, &HashMap::new()).unwrap();
+        let covers = dir.path().join("covers");
+        std::fs::create_dir(&covers).unwrap();
+        std::fs::write(covers.join(format!("{}.png", game.crc32)), b"image").unwrap();
+        for ext in ["webp", "jpeg", "jpg", "png"] {
+            std::fs::write(rom.with_extension(ext), b"image").unwrap();
+        }
+        assert_eq!(
+            find_cover_path(&game, &covers),
+            Some(rom.with_extension("png"))
+        );
+        std::fs::remove_file(rom.with_extension("png")).unwrap();
+        assert_eq!(
+            find_cover_path(&game, &covers),
+            Some(rom.with_extension("jpg"))
+        );
+    }
+
+    #[test]
+    fn adjacent_cover_discovery_ignores_directories_and_clears_removed_images() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = rom_in(dir.path(), "Game.md", b"rom");
+        std::fs::create_dir(rom.with_extension("png")).unwrap();
+        std::fs::write(dir.path().join("Other.jpg"), b"image").unwrap();
+        let mut games = vec![scan_one(&rom, &HashMap::new()).unwrap()];
+        games[0].cover_path = "deleted.png".into();
+        find_covers(&mut games, &dir.path().join("missing"));
+        assert!(games[0].cover_path.is_empty());
+    }
 
     /// La biblioteca resuelve la ruta del pack UNA vez y la guarda. Que esa
     /// ruta viaje en el modelo —en vez de re-derivarse donde se necesita— es lo
@@ -1241,6 +1345,38 @@ mod tests {
         assert_eq!(
             v[0].available_packs[0], v[0].pack_path,
             "`pack_path` es el primero de la lista, no otra elección aparte"
+        );
+    }
+
+    #[test]
+    fn selected_pack_survives_reload_and_rescan_and_falls_back_after_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = rom_in(dir.path(), "juego.md", b"la rom");
+        let crc = real_crc(&rom).to_lowercase();
+        installed_pack(dir.path(), "juego", &crc, "x");
+        let packs = dir.path().join("packs");
+        installed_pack(&packs, "alternative", &crc, "x");
+        let mut games = vec![scan_one(&rom, &HashMap::new()).unwrap()];
+        attach_installed_packs(&mut games, &index_installed_packs(&packs));
+        games[0].pack_path = games[0].available_packs[1].clone();
+        let selected = games[0].pack_path.clone();
+        let cache = dir.path().join("library.json");
+        Library::open(&cache).save_game(&games[0]);
+        let lib = Library::open(&cache);
+
+        let mut scanned = vec![scan_one(&rom, lib.known_games()).unwrap()];
+        attach_installed_packs(&mut scanned, &index_installed_packs(&packs));
+        lib.restore_pack_selection(&mut scanned);
+        assert_eq!(scanned[0].pack_path, selected);
+        assert_eq!(scanned[0].available_packs.len(), 2);
+
+        std::fs::remove_file(selected).unwrap();
+        let mut scanned = vec![scan_one(&rom, lib.known_games()).unwrap()];
+        attach_installed_packs(&mut scanned, &index_installed_packs(&packs));
+        lib.restore_pack_selection(&mut scanned);
+        assert_eq!(
+            scanned[0].pack_path,
+            rom.with_extension("ay").to_string_lossy()
         );
     }
 
@@ -1631,6 +1767,7 @@ mod tests {
         let mut customized_game = lib.get_all()[0].clone();
         customized_game.favorite = true;
         customized_game.user_title = Some("Como yo le digo".into());
+        customized_game.user_art = Some("covers/custom.png".into());
         customized_game.last_played = 12345;
         customized_game.seconds_played = 600;
         lib.save_game(&customized_game);
@@ -1647,6 +1784,9 @@ mod tests {
         let g = &lib.get_all()[0];
         assert!(g.favorite, "el favorito no sobrevivio al re-escaneo");
         assert_eq!(g.title(), "Como yo le digo", "el titulo editado se perdio");
+        assert_eq!(g.artwork(), "covers/custom.png");
+        let reopened = Library::open(&dir.path().join("library.json"));
+        assert_eq!(reopened.get_all()[0].artwork(), "covers/custom.png");
         assert_eq!(g.last_played, 12345);
         assert_eq!(g.seconds_played, 600);
         // Y lo del disco SÍ se actualiza: para eso corre el escaneo.

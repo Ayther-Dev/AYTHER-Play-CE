@@ -174,10 +174,8 @@ pub enum PackState {
     Unusable,
 }
 
-/// Lo único que la sección ofrece hacer (#633).
-///
-/// Una por estado, nunca dos. Una sección con dos botones obliga a elegir antes
-/// de entender, y a tres metros eso es una pantalla que no se usa.
+/// Acción de uso del pack (#633). Instalar, cambiar y desinstalar son acciones
+/// independientes de este estado: también están disponibles si no se puede usar.
 ///
 /// Vive para los oráculos: la UI trabaja con el índice del estado y no con este
 /// enum, pero la tabla estado→acción es justamente lo que hay que poder probar
@@ -194,8 +192,7 @@ pub enum PackAction {
     /// «Conseguir» de CE: en AYTHER Play este estado lleva al Hub; acá el
     /// pack ya lo tiene el jugador y lo que falta es traerlo con el mando.
     Install,
-    /// Ninguna: un pack que no sirve no se arregla apretando un botón. Lo
-    /// único que la ficha puede hacer por él es decir por qué.
+    /// Un pack que no sirve no se puede activar; sí se puede desinstalar.
     NoOp,
 }
 

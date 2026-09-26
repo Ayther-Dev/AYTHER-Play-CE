@@ -38,6 +38,8 @@ pub enum Mode {
     File,
     /// La carpeta de packs del jugador.
     Folder,
+    /// Una imagen para la carátula de un juego.
+    Cover,
 }
 
 /// En qué está el diálogo.
@@ -74,6 +76,9 @@ pub struct State {
     pub row: i32,
     pub dir: PathBuf,
     pub entries: Vec<Entry>,
+    /// Ruta estable de la ROM; los índices de la vista pueden cambiar al escanear.
+    pub cover_game: Option<String>,
+    pub cover_error: String,
 }
 
 impl Default for State {
@@ -85,6 +90,8 @@ impl Default for State {
             row: 0,
             dir: PathBuf::new(),
             entries: Vec::new(),
+            cover_game: None,
+            cover_error: String::new(),
         }
     }
 }
@@ -106,6 +113,8 @@ impl State {
             explorer::starting_path()
         };
         self.mode = mode;
+        self.cover_game = None;
+        self.cover_error.clear();
         self.phase = Phase::Browsing;
         self.row = 0;
         self.navigate_to(start);
@@ -116,6 +125,7 @@ impl State {
         match self.mode {
             Mode::File => Search::File(EXT_PACK),
             Mode::Folder => Search::Folder,
+            Mode::Cover => Search::File(&["png", "jpg", "jpeg", "webp"]),
         }
     }
 
@@ -291,10 +301,38 @@ mod tests {
         assert!(!names.contains(&"leeme.txt"), "{names:?}");
     }
 
-    /// A sobre una carpeta ENTRA; sobre un `.ay` lo elige y el diálogo pasa a
-    /// «trabajando» — y desde ahí ni A ni B hacen nada hasta el resultado: un
-    /// diálogo que deja elegir otro archivo con la instalación corriendo
-    /// instala dos, y uno que se cierra a medias parece que abortó.
+    #[test]
+    fn cover_picker_filters_images_and_cancels_without_selecting() {
+        let (_t, d) = tree();
+        std::fs::write(d.join("cover.JPG"), b"image").unwrap();
+        std::fs::write(d.join("cover.webp"), b"image").unwrap();
+        let mut e = State::default();
+        e.open(Mode::Cover, d);
+        let files: Vec<_> = e
+            .entries
+            .iter()
+            .filter(|e| !e.is_dir)
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(files, ["cover.JPG", "cover.webp"]);
+        assert!(e.select_current_folder().is_none());
+        assert!(e.close());
+        assert!(!e.is_open);
+    }
+
+    #[test]
+    fn leaving_cover_mode_clears_the_target_game() {
+        let (_t, d) = tree();
+        let mut e = State::default();
+        e.open(Mode::Cover, d.clone());
+        e.cover_game = Some("game.md".into());
+        e.cover_error = "invalid image".into();
+        e.open(Mode::File, d);
+        assert!(e.cover_game.is_none());
+        assert!(e.cover_error.is_empty());
+    }
+
+    /// A sobre una carpeta entra; sobre un pack bloquea nuevas elecciones hasta el resultado.
     #[test]
     fn picking_a_pack_blocks_the_dialog_until_the_result() {
         let (_t, d) = tree();

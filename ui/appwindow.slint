@@ -42,6 +42,7 @@ export struct GameEntry {
     has-pack:    bool,
     pack-status: int,
     cover:       image,
+    cover-path:  string,
     // en qué está el core de esta plataforma. La tarjeta lo necesita
     // para apagarse y decirlo ANTES de que el jugador apriete A y falle.
     // Es un ENTERO y no un `bool`: «no hay core», «lo comprobé y no
@@ -1483,14 +1484,15 @@ component GameRow inherits Rectangle {
 component ScanBanner inherits Rectangle {
     in property <int> done;
     in property <int> total;
-    in property <int> found;
+    in property <string> stage;
+    in property <bool> cancelable: true;
     callback cancel();
 
     // un progreso que sólo se ve como barra no existe para quien no la
     // ve. Con rol y valor, el avance del escaneo se puede consultar en vez de
     // esperar a que la pantalla cambie sola.
     accessible-role: progress-indicator;
-    accessible-label: @tr("Escaneando la biblioteca");
+    accessible-label: stage;
     accessible-value: root.done + " / " + root.total;
     accessible-value-minimum: 0;
     accessible-value-maximum: root.total;
@@ -1509,30 +1511,23 @@ component ScanBanner inherits Rectangle {
             text: Icons.magnifying-glass; color: Tokens.accent;
         }
         Text {
-            text: found == 1
-                ? @tr("Escaneando… {} juego encontrado", found)
-                : @tr("Escaneando… {} juegos encontrados", found);
+            text: root.stage;
             color: Tokens.text-normal;
             font-family: Tokens.font-ui; font-size: Tokens.text-body;
             vertical-alignment: center;
         }
-        // La barra: el relleno es una fracción del ancho fijo del riel. Con
-        // `total` en 0 queda en cero — no se inventa un progreso que no se sabe.
-        Rectangle {
-            width: 360px; height: 8px; y: (parent.height - self.height) / 2;
-            background: Tokens.bg-well;
-            border-radius: Shape.pill(self.width, self.height);
-            clip: true;
-            Rectangle {
-                x: 0;
-                width: total > 0 ? parent.width * (done / total) : 0px;
-                height: parent.height;
-                background: Tokens.accent;
-                border-radius: Shape.pill(self.width, self.height);
-            }
+        ProgressIndicator {
+            width: 280px;
+            progress: root.total > 0 ? min(1, root.done / root.total) : 0;
+            indeterminate: root.total <= 0;
+        }
+        if root.total > 0: Text {
+            text: root.done + " / " + root.total;
+            color: Tokens.text-dim;
+            vertical-alignment: center;
         }
         Rectangle { horizontal-stretch: 1; }
-        cancel-area := TouchArea {
+        if root.cancelable: cancel-area := TouchArea {
             width: cancel-label.width + 32px; height: Tokens.control-sm;
             clicked => { root.cancel(); }
             Rectangle {
@@ -1581,10 +1576,13 @@ export component AppWindow inherits Window {
     in-out property <int>            current-game: 0;
     in     property <string>         status:       @tr("No hay ROMs — apretá F5 para escanear");
     in     property <bool>           scanning:     false;
+    in property <string> scan-stage: @tr("Escaneando la biblioteca");
+    in property <int> artwork-done: 0;
+    in property <int> artwork-total: 0;
     // el escaneo NO bloquea (play-ce.pen, nota «02 · Biblioteca»): la
     // biblioteca se usa mientras escanea, así que hace falta decir cuánto falta
     // y ofrecer salida. `scan-total` en 0 significa «todavía no sé cuántos
-    // son»: la barra queda vacía en vez de mentir un progreso.
+    // son»: la barra indica actividad sin inventar un porcentaje.
     in     property <int>            scan-done:  0;
     in     property <int>            scan-total:   0;
     in     property <int>            scan-found: 0;
@@ -1618,6 +1616,7 @@ export component AppWindow inherits Window {
     callback game-hide(int);
     callback game-edit(int, string);
     callback game-restore(int);
+    callback game-cover(int);
 
     // ---- Inicio ---------------------------------------------------------
     // El hero se arma con campos sueltos y no con un `GameEntry`: sus textos son
@@ -1678,6 +1677,11 @@ export component AppWindow inherits Window {
       : details-pack-usage-status == 2 ? @tr("Activar")
                                    : "";
     callback details-pack-act();
+    callback details-install-pack();
+    callback details-next-pack();
+    callback details-uninstall-pack();
+    in property <int> details-pack-count: 0;
+    in property <bool> details-pack-busy: false;
     /// Este juego no tiene pack puesto. En AYTHER Play CE eso es el final de la
     /// frase: no hay a quién preguntarle qué packs existen para esta ROM
     /// (ADR-005), así que la sección dice lo que sí sabe en vez de dejar el
@@ -1765,6 +1769,8 @@ export component AppWindow inherits Window {
     /// 0 explorando · 1 trabajando (auditando e instalando) · 2 resultado.
     in     property <int>      install-phase: 0;
     in     property <bool>     install-folder-mode: false;
+    in property <bool> install-cover-mode: false;
+    in property <string> install-cover-error;
     in     property <string>   install-path: "";
     in     property <[OnboardingRow]> install-rows: [];
     in-out property <int>      install-row: 0;
@@ -1784,6 +1790,9 @@ export component AppWindow inherits Window {
     // ---- crash, sesión huérfana y doble lanzamiento -------------------
     in-out property <bool>   crash-open: false;
     in property <string>     crash-detail: "";
+    in property <string>     crash-title: "";
+    in property <string>     crash-explanation: "";
+    in property <bool>       crash-pack-rejected: false;
     callback crash-safe-mode();
 
     in-out property <bool>   orphan-open: false;
@@ -1896,11 +1905,15 @@ export component AppWindow inherits Window {
         { key: "Y", icon: "", label: @tr("Partida nueva") },
         { key: "B", icon: "", label: @tr("Atrás") },
     ];
+    property <[PadHint]> hints-confirmation: [
+        { key: "Start", icon: "", label: root.confirm-action },
+        { key: "B", icon: "", label: @tr("Cancelar") },
+    ];
     property <[PadHint]> hints-credits: [
         { key: "B", icon: "", label: @tr("Cerrar") },
     ];
     property <[PadHint]> hints-crash: [
-        { key: "A", icon: "", label: @tr("Modo seguro") },
+        { key: "A", icon: "", label: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro") },
         { key: "B", icon: "", label: @tr("Cerrar") },
     ];
     property <[PadHint]> hints-orphan: [
@@ -1944,6 +1957,7 @@ export component AppWindow inherits Window {
     // distinto al mismo botón.
     property <[PadHint]> shell-hints:
         root.pad-surface == "onboarding" || root.pad-surface == "explorador" ? root.onboarding-hints
+      : root.pad-surface == "confirmar"    ? root.hints-confirmation
       : root.pad-surface == "config"       ? root.hints-config
       : root.pad-surface == "ajustes"      ? root.hints-settings
       : root.pad-surface == "guardados"    ? root.hints-saves
@@ -2031,6 +2045,7 @@ export component AppWindow inherits Window {
     // no puedan divergir.
     out    property <string>         pad-surface:
           playing        ? "jugando"
+        : confirm-open ? "confirmar"
         : onboarding-open && onboarding-browsing ? "explorador"
         : onboarding-open ? "onboarding"
         : crash-open  ? "crash"
@@ -2318,6 +2333,20 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+
+        // Progreso visible también en Inicio; la biblioteca sigue respondiendo.
+        if root.scanning: ScanBanner {
+            done: root.scan-done;
+            total: root.scan-total;
+            stage: root.scan-stage;
+            cancel => { root.scan-cancel(); }
+        }
+        if root.artwork-done < root.artwork-total: ScanBanner {
+            done: root.artwork-done;
+            total: root.artwork-total;
+            stage: @tr("Cargando carátulas…");
+            cancelable: false;
         }
 
         // ---- Inicio (play-ce.pen «01» y «01b») ---------------------------
@@ -2633,12 +2662,6 @@ export component AppWindow inherits Window {
                 // El banner se apila ARRIBA de la lista y no la tapa: la nota
                 // del diseño pide que la biblioteca se use mientras escanea, y
                 // un overlay modal sería lo contrario.
-                if root.scanning: ScanBanner {
-                    done:      root.scan-done;
-                    total:       root.scan-total;
-                    found: root.scan-found;
-                    cancel       => { root.scan-cancel(); }
-                }
                 // La FilterBar del diseño (play-ce.pen «02 · Biblioteca»):
                 // búsqueda, chips, orden y el conmutador de vista.
                 // La nota del .pen habla de un diálogo «02b» para los filtros,
@@ -3172,6 +3195,15 @@ export component AppWindow inherits Window {
                 if event.text == "c" || event.text == "C" {
                     root.details-configure(); return EventResult.accept;
                 }
+                if event.text == Key.UpArrow {
+                    root.details-install-pack(); return EventResult.accept;
+                }
+                if event.text == Key.RightArrow {
+                    root.details-next-pack(); return EventResult.accept;
+                }
+                if event.text == Key.DownArrow {
+                    root.details-uninstall-pack(); return EventResult.accept;
+                }
                 return EventResult.reject;
             }
             DeferredFocus {
@@ -3525,17 +3557,32 @@ export component AppWindow inherits Window {
                                                 font-family: Tokens.font-ui; font-size: Tokens.text-body;
                                             }
                                         }
-                                        // y la sección OFRECE conseguir
-                                        // uno. Decir que no hay y no decir dónde
-                                        // se consigue es enseñar que puede haber
-                                        // y dejar al jugador buscándolo.
-                                        Centered {
-                                            ActionButton {
-                                                label: root.details-pack-action;
-                                                icon: Icons.package;
-                                                clicked => { root.details-pack-act(); }
-                                            }
+                                    }
+
+                                    HorizontalLayout {
+                                        alignment: start; spacing: 12px;
+                                        ActionButton {
+                                            label: @tr("Instalar un pack desde el disco");
+                                            icon: Icons.package;
+                                            clicked => { root.details-install-pack(); }
                                         }
+                                        if root.details-pack-count > 1: ActionButton {
+                                            label: @tr("Cambiar pack");
+                                            enabled: !root.scanning && !root.details-pack-busy;
+                                            clicked => { root.details-next-pack(); }
+                                        }
+                                        if root.details-game.has-pack: ActionButton {
+                                            label: @tr("Desinstalar pack");
+                                            enabled: !root.scanning && !root.details-pack-busy;
+                                            clicked => { root.details-uninstall-pack(); }
+                                        }
+                                    }
+                                    Text {
+                                        text: @tr("↑ Instalar pack · → Cambiar pack · ↓ Desinstalar pack");
+                                        color: Tokens.text-dim;
+                                        font-family: Tokens.font-ui;
+                                        font-size: Tokens.text-body-sm;
+                                        wrap: word-wrap;
                                     }
 
                                     // Y SIN PACK, LA SECCIÓN TERMINA ACÁ.
@@ -3663,6 +3710,14 @@ export component AppWindow inherits Window {
             //.
             MenuItem { label: @tr("Elegir pack"); icon: Icons.package; enabled: false; }
             MenuItem { label: @tr("Elegir core"); icon: Icons.cpu;     enabled: false; }
+            MenuItem {
+                label: @tr("Asignar carátula");
+                icon: Icons.image;
+                clicked => {
+                    root.menu-open = false;
+                    root.game-cover(root.current-game);
+                }
+            }
             MenuItem {
                 label: @tr("Editar metadatos");
                 icon: Icons.pencil-simple;
@@ -3796,6 +3851,24 @@ export component AppWindow inherits Window {
         background: Tokens.bg-elevated;
         border-radius: Tokens.radius-lg;
         border-width: 1px; border-color: Tokens.border;
+        confirmation-scope := FocusScope {
+            width: parent.width; height: parent.height;
+            key-pressed(event) => {
+                if event.text == Key.Return {
+                    root.confirm-accept(); root.confirm-open = false;
+                    return EventResult.accept;
+                }
+                if event.text == Key.Escape || event.text == Key.Backspace {
+                    root.confirm-open = false;
+                    return EventResult.accept;
+                }
+                return EventResult.accept;
+            }
+            DeferredFocus {
+                request-focus: root.pad-surface == "confirmar" && !confirmation-scope.has-focus;
+                take-focus => { confirmation-scope.focus(); }
+            }
+        }
         confirmation-column := VerticalLayout {
             padding: 24px; spacing: 16px;
             Text {
@@ -4206,6 +4279,7 @@ export component AppWindow inherits Window {
                 padding: 28px; spacing: 16px;
                 Text {
                     text: root.install-phase == 2 ? root.install-title
+                        : root.install-cover-mode ? @tr("ELEGÍ UNA CARÁTULA")
                         : root.install-folder-mode ? @tr("ELEGÍ TU CARPETA DE PACKS")
                                                      : @tr("INSTALAR UN PACK DESDE EL DISCO");
                     color: Tokens.text-bright;
@@ -4225,9 +4299,17 @@ export component AppWindow inherits Window {
                 }
                 // Vacío no es roto, y se dice: una lista sin filas (más allá de
                 // «..») con un filtro puesto necesita explicar el filtro.
+                if root.install-cover-mode && root.install-cover-error != "": Text {
+                    text: root.install-cover-error;
+                    color: Tokens.text-normal;
+                    font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
+                    wrap: word-wrap;
+                }
                 if root.install-phase == 0 && !root.install-folder-mode
                    && root.install-rows.length <= 1: Text {
-                    text: @tr("Acá no hay ningún pack: se buscan archivos .ay.");
+                    text: root.install-cover-mode
+                        ? @tr("Elegí una imagen PNG, JPG o WebP.")
+                        : @tr("Acá no hay ningún pack: se buscan archivos .ay.");
                     color: Tokens.text-dim;
                     font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                 }
@@ -4274,13 +4356,19 @@ export component AppWindow inherits Window {
     if crash-open: TenFootDialog {
         x: (parent.width - self.width) / 2;
         y: Shell.topbar + (parent.height - Shell.topbar - Shell.footer - self.height) / 2;
-        title: @tr("EL JUEGO SE CERRÓ INESPERADAMENTE");
+        title: root.crash-title;
         left-button-label: @tr("Cerrar");
-        right-button-label: @tr("Modo seguro");
+        right-button-label: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro");
         left-clicked => { root.crash-open = false; }
         right-clicked => { root.crash-safe-mode(); root.crash-open = false; }
+        Text {
+            text: root.crash-explanation;
+            color: Tokens.text-normal;
+            font-family: Tokens.font-ui; font-size: Tokens.text-body;
+            wrap: word-wrap; width: 704px;
+        }
         TenFootAlert {
-            title: @tr("Reiniciar en modo seguro");
+            title: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Reiniciar en modo seguro");
             detail: @tr("Se lanza sin pack, sin shaders y sin overrides. La ROM y tus guardados quedan intactos.");
         }
         Text {
