@@ -605,11 +605,18 @@ fn installing_a_pack_audits_before_touching_what_is_installed() {
     let start = rs.find("pub fn promote(").expect("no está `promote`");
     let body = &rs[start..];
     let audit = body
-        .find("verifier::audit(&staging)")
+        .find("verifier::audit_with_progress(&staging")
         .expect("`promote` dejó de auditar: es lo ÚNICO que CE puede comprobar de un pack");
     let move_by = body
         .find("std::fs::rename(&current, &previous)")
         .expect("`promote` dejó de conservar la versión anterior");
+    let cached_audit = body
+        .find("repo.inspect(&staging")
+        .expect("falta la inspección compartida de staging");
+    assert!(
+        cached_audit < move_by,
+        "la inspección de caché debe preceder a la promoción"
+    );
     assert!(
         audit < move_by,
         "la auditoría corre DESPUÉS de mover lo instalado: un .ay roto se llevaría              puesto el pack que funcionaba, y acá no hay copia en un servidor para              volver a bajarla"
@@ -618,29 +625,40 @@ fn installing_a_pack_audits_before_touching_what_is_installed() {
     // Y que el MOTOR pueda abrirlo, que es otra pregunta: un manifest
     // incompleto pasa la integridad y después no abre.
     assert!(
-        body.contains("AyArchive::open_verbose"),
+        body.contains("AyArchive::catalog_metadata"),
         "`promote` dejó de comprobar que el motor pueda abrir el pack"
     );
 }
 
-/// #633 — CADA ESTADO DEL PACK TIENE SUS PALABRAS, Y UNA SOLA ACCIÓN.
-///
-/// La máquina —qué estado hay y qué acción ofrece— vive en `game_details::EstadoPack`
-/// y se prueba sin ventana. Lo que este oráculo cubre es la otra mitad: que la
-/// UI tenga una etiqueta por estado y un verbo por acción, y que el conmutador
-/// de HD no vuelva.
-///
-/// El conmutador se fue porque contaba otra historia: escribía el perfil de la
-/// próxima sesión y había que deducir del color del riel si el pack estaba
-/// puesto. Lo que se elige no es «original o mejorado» dentro de un pack, es si
-/// el pack está puesto — y eso tiene nombre.
+/// One row per pack: activation and its state share an accessible toggle.
+/// Destructive actions remain attached to that exact pack, with an icon.
 #[test]
 fn the_pack_goes_on_and_off_with_a_verb() {
     let ui = ui();
 
     assert!(
-        !ui.contains("ToggleHD"),
-        "volvió el conmutador de HD: la acción sobre el pack vive en su sección"
+        ui.contains("component PackToggleButton")
+            && ui.contains("accessible-checked: root.checked;"),
+        "pack activation must expose the toggle state to assistive technology"
+    );
+    let packs = &ui[ui.find("for installed-pack in root.details-packs").unwrap()..];
+    let packs = &packs[..packs.find("// y POR QUÉ,").unwrap()];
+    assert!(
+        !packs.contains("text: installed-pack.path;"),
+        "pack rows must hide filesystem paths"
+    );
+    assert!(
+        !packs.contains("details-selected-pack-present: Rectangle"),
+        "the selected pack must not render a second row"
+    );
+    assert!(
+        !packs.contains("@tr(\"Seleccionado\")"),
+        "there is no redundant selected button"
+    );
+    assert!(packs.contains("root.details-toggle-pack(installed-pack.path)"));
+    assert!(
+        packs.contains("PackRemoveButton")
+            && packs.contains("root.details-uninstall-pack(installed-pack.path)")
     );
 
     // Una etiqueta por estado (activo · apagado · no se puede usar) y un verbo

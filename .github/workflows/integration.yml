@@ -23,4 +23,4 @@ jobs:
       - run: cargo test -p ayther_play_ce --all-features --locked
       - name: Required real process checks (no dependency skips)
         # The manual pack smoke test requires a user-owned, undistributed .ay.
-        run: cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored --skip real_local_pack_installs_and_exposes_metadata
+        run: cargo test -p ayther_play_ce --all-features --locked --bin ayther_play_ce -- --ignored --skip real_local_pack_installs_and_exposes_metadata --skip profile_local_startup

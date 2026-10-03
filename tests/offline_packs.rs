@@ -7,6 +7,9 @@ use std::io::Write;
 macro_rules! tr {
     ($($arg:tt)*) => { format!($($arg)*) };
 }
+#[path = "../src/cache_metrics.rs"]
+#[allow(dead_code)]
+mod cache_metrics;
 #[path = "../src/verifier.rs"]
 mod verifier;
 

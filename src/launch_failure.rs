@@ -16,6 +16,17 @@ pub struct Notice {
 }
 
 impl Failure {
+    /// These errors occur before the reservation ACK. After ACK, a pack failure
+    /// belongs to Runtime's independent validation and must keep its diagnosis.
+    pub fn reservation_not_confirmed(&mut self) {
+        self.reason = match self.reason.as_str() {
+            "cli.invalid_argument" => "runtime.reservation_unsupported".into(),
+            "pack.open_failed" => "runtime.reservation_failed".into(),
+            _ => return,
+        };
+        self.explicit_error = true;
+    }
+
     pub fn observe(&mut self, event: &RuntimeEvent) {
         match event {
             RuntimeEvent::Ready { .. } => self.started = true,
@@ -24,18 +35,19 @@ impl Failure {
                 self.reason.clone_from(reason);
                 self.detail = bounded(message);
             }
-            RuntimeEvent::Warning { reason, message }
-                if !self.explicit_error
-                    && matches!(
-                        reason.as_str(),
-                        "pack.open_failed"
-                            | "pack.trust_registry_invalid"
-                            | "input.map_invalid"
-                            | "core.load_failed"
-                            | "core.invalid"
-                            | "cli.invalid_argument"
-                            | "protocol.incompatible"
-                    ) =>
+            RuntimeEvent::Warning {
+                reason, message, ..
+            } if !self.explicit_error
+                && matches!(
+                    reason.as_str(),
+                    "pack.open_failed"
+                        | "pack.trust_registry_invalid"
+                        | "input.map_invalid"
+                        | "core.load_failed"
+                        | "core.invalid"
+                        | "cli.invalid_argument"
+                        | "protocol.incompatible"
+                ) =>
             {
                 self.reason.clone_from(reason);
                 self.detail = bounded(message);
@@ -68,6 +80,18 @@ impl Failure {
             "pack.open_failed" | "pack.trust_registry_invalid"
         );
         let (title, explanation) = match self.reason.as_str() {
+            "runtime.reservation_unsupported" => (
+                tr!("Actualizá el motor de juego"),
+                tr!(
+                    "Este Runtime no confirmó los archivos preparados. Instalá la compilación de Runtime que acompaña a esta versión de Play CE y volvé a intentar."
+                ),
+            ),
+            "runtime.reservation_failed" => (
+                tr!("No se pudo reservar el archivo"),
+                tr!(
+                    "La ROM o el pack cambió o está en uso. Esperá a que termine la copia o modificación y volvé a intentar."
+                ),
+            ),
             "pack.open_failed"
                 if self.detail.contains("Trust(UnknownKey(")
                     || self.detail.contains("unknown signing key '") =>
@@ -148,11 +172,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reservation_failures_explain_old_runtime_or_changed_files() {
+        for (reason, expected) in [
+            ("cli.invalid_argument", "runtime.reservation_unsupported"),
+            ("pack.open_failed", "runtime.reservation_failed"),
+            ("core.load_failed", "core.load_failed"),
+        ] {
+            let mut failure = Failure {
+                reason: reason.into(),
+                detail: "technical cause".into(),
+                ..Default::default()
+            };
+            failure.reservation_not_confirmed();
+            assert_eq!(failure.reason, expected);
+            assert_eq!(failure.detail, "technical cause");
+            if reason != "core.load_failed" {
+                assert!(failure.explicit_error);
+                assert!(!failure.notice().pack_rejected);
+            }
+        }
+    }
+
+    #[test]
     fn signed_pack_rejection_keeps_the_reason_and_offers_playing_without_it() {
         let mut failure = Failure::default();
         failure.observe(&RuntimeEvent::Warning {
             reason: "pack.open_failed".into(),
             message: "cannot open pack".into(),
+            audio: Default::default(),
         });
         failure.finish(Some(4), "[AyArchive] Trust(UnknownKey(\"local-author\"))");
         let notice = failure.notice();
@@ -168,6 +215,7 @@ mod tests {
         failure.observe(&RuntimeEvent::Warning {
             reason: "pack.no_active_subsystems".into(),
             message: "warning".into(),
+            audio: Default::default(),
         });
         assert!(failure.reason.is_empty());
         assert!(!failure.explicit_error);

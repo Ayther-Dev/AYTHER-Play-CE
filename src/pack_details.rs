@@ -33,11 +33,13 @@
 //! que `ay_pack validate` le muestra al autor. Si el autor lo vio pasar, el
 //! jugador no debería ver otra cosa.
 
+#[cfg(test)]
 use ayther_core::archive_vfs::AyArchive;
 use ayther_core::pack_validate::{self, SessionCtx, Severity};
 
 use crate::verifier::Audit;
 
+#[cfg(test)]
 use std::path::Path;
 
 /// Un hallazgo del validador, ya listo para mostrar.
@@ -138,6 +140,8 @@ impl PackDetails {
                 .filter(|f| f.level == "error" && blocks_play(&f.code))
                 .count();
             format!("Incompatible: {n} problema(s) que impiden jugarlo")
+        } else if self.grade == "experimental" {
+            format!("Compatibilidad pendiente: {}", self.grade_reason)
         } else if self.findings.iter().any(|f| f.level == "advertencia") {
             "Compatible, con avisos".to_string()
         } else {
@@ -153,7 +157,28 @@ impl PackDetails {
 /// pack es para ESE juego; cuando no, lo dice en vez de darlo por bueno — un
 /// «compatible» sin haber comparado nada es exactamente lo que la issue anota
 /// como riesgo.
+#[cfg(test)]
 pub fn read(pack_path: &Path, rom_crc32: Option<&str>) -> PackDetails {
+    if let Some(repo) = crate::pack_cache::global() {
+        return match repo.inspect(
+            pack_path,
+            &std::sync::atomic::AtomicBool::new(false),
+            &mut |_, _| {},
+        ) {
+            Ok(snapshot) => from_snapshot(
+                &snapshot,
+                &SessionCtx {
+                    rom_crc32: rom_crc32
+                        .and_then(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16).ok()),
+                    ..Default::default()
+                },
+            ),
+            Err(error) => PackDetails {
+                audit: Audit::InvalidPack(error),
+                ..Default::default()
+            },
+        };
+    }
     let mut d = PackDetails {
         size_bytes: std::fs::metadata(pack_path).map(|m| m.len()).unwrap_or(0),
         ..Default::default()
@@ -251,6 +276,65 @@ pub fn read(pack_path: &Path, rom_crc32: Option<&str>) -> PackDetails {
     d
 }
 
+/// Builds a session view without reopening the pack or repeating its audit.
+pub fn from_snapshot(snapshot: &crate::pack_cache::Snapshot, ctx: &SessionCtx<'_>) -> PackDetails {
+    let verdict = pack_validate::grade_report(
+        pack_validate::validate_metadata(&snapshot.metadata, ctx),
+        ctx,
+    );
+    let mut d = PackDetails {
+        size_bytes: snapshot.revision.bytes,
+        audit: snapshot
+            .audit
+            .clone()
+            .unwrap_or_else(|| Audit::InvalidPack("Comprobación pendiente".into())),
+        grade: verdict.grade.id(),
+        grade_reason: verdict.reason,
+        credits: snapshot
+            .metadata
+            .texts
+            .get("credits.toml")
+            .map(|s| crate::pack_meta::credits_from_bytes(s.as_bytes()))
+            .unwrap_or_default(),
+        findings: verdict
+            .report
+            .findings
+            .into_iter()
+            .map(|f| Finding {
+                level: match f.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "advertencia",
+                    Severity::Info => "sugerencia",
+                },
+                code: f.code.to_owned(),
+                message: f.message,
+            })
+            .collect(),
+        ..Default::default()
+    };
+    if let Some(pack) = &snapshot.catalog {
+        d.name.clone_from(&pack.meta.name);
+        d.version.clone_from(&pack.meta.version);
+        d.game_id.clone_from(&pack.meta.game_id);
+        d.author = pack.meta.author.clone().unwrap_or_default();
+        d.description = pack.meta.description.clone().unwrap_or_default();
+        d.license = pack.meta.license.clone().unwrap_or_default();
+        d.contributors.clone_from(&pack.meta.contributors);
+        d.systems_declared = pack.systems_declared;
+        d.systems.clone_from(&pack.systems.included);
+        d.profiles = pack
+            .profiles
+            .iter()
+            .map(|p| (p.id.clone(), p.name.clone().unwrap_or_else(|| p.id.clone())))
+            .collect();
+    }
+    d.incompatible = d
+        .findings
+        .iter()
+        .any(|f| f.level == "error" && blocks_play(&f.code));
+    d
+}
+
 /// ¿Este error impide JUGAR el pack, o sólo publicarlo?
 ///
 /// La distinción no es cosmética. `provenance.missing` —una licencia que exige
@@ -262,7 +346,7 @@ pub fn read(pack_path: &Path, rom_crc32: Option<&str>) -> PackDetails {
 /// Lo que sí impide jugar es lo que hace que el pack no ANDE en esta máquina:
 /// que sea de otro juego, que pida un motor más nuevo, que su formato no se
 /// entienda, o que esté roto.
-fn blocks_play(code: &str) -> bool {
+pub(crate) fn blocks_play(code: &str) -> bool {
     // UNA sola implementación del criterio (#530): la misma que usa el grado de
     // compatibilidad del core, y por lo tanto la misma que van a contestar el
     // SDK y el Hub. Tres respuestas distintas a «¿este pack corre acá?» es

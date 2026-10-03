@@ -341,7 +341,11 @@ impl CompatVerdict {
 /// The function validates archive metadata without loading the pack for play.
 pub fn compat_grade(path: &str, ctx: &SessionCtx) -> CompatVerdict {
     let report = validate_path(path, ctx);
+    grade_report(report, ctx)
+}
 
+/// Grades a report produced from either a live archive or cached metadata.
+pub fn grade_report(report: Report, ctx: &SessionCtx) -> CompatVerdict {
     // Lo que el CALLER no aportó. Se mira el contexto y no el informe: un
     // hallazgo puede faltar porque el pack no exige ese requisito, y ahí no
     // haber aportado el dato no es una laguna. Lo que hace falta comprobar lo
@@ -419,31 +423,48 @@ pub fn compat_grade(path: &str, ctx: &SessionCtx) -> CompatVerdict {
 ///
 /// Every failure becomes a structured finding in the returned report.
 pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
+    match read_metadata(path) {
+        Ok(metadata) => validate_metadata(&metadata, ctx),
+        Err(report) => report,
+    }
+}
+
+/// Metadata-only evidence. Assets are never decompressed for compatibility.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ValidationMetadata {
+    /// Validated archive member names.
+    pub names: Vec<String>,
+    /// Bounded metadata text, using the same parser as live validation.
+    pub texts: std::collections::BTreeMap<String, String>,
+}
+
+/// Reads structural evidence once for persistence in a launcher catalog.
+pub fn read_metadata(path: &str) -> Result<ValidationMetadata, Report> {
     let mut r = Report::default();
 
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) => {
             r.error("io", format!("no se pudo abrir '{}': {}", path, e));
-            return r;
+            return Err(r);
         }
     };
     let archive_size = match file.metadata() {
         Ok(metadata) => metadata.len(),
         Err(e) => {
             r.error("io", format!("no se pudo medir el pack '{}': {}", path, e));
-            return r;
+            return Err(r);
         }
     };
     if let Err(e) = validate_archive_size(archive_size) {
         r.error("security.policy", e.to_string());
-        return r;
+        return Err(r);
     }
     let mut zip = match zip::ZipArchive::new(file) {
         Ok(z) => z,
         Err(e) => {
             r.error("zip", format!("no es un .ay legible (ZIP inválido): {}", e));
-            return r;
+            return Err(r);
         }
     };
 
@@ -456,7 +477,7 @@ pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
                     "zip",
                     format!("el directorio central del pack no se puede leer: {e}"),
                 );
-                return r;
+                return Err(r);
             }
         };
         if !entry.is_dir() {
@@ -479,20 +500,65 @@ pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
             }),
     ) {
         r.error("security.policy", e.to_string());
-        return r;
+        return Err(r);
     }
     let names: Vec<String> = central_entries
         .into_iter()
         .map(|(path, _, _)| path)
         .collect();
 
-    // -- manifest.toml -------------------------------------------------------
-    let mut manifest_txt = String::new();
-    match zip.by_name("manifest.toml") {
-        Ok(mut e) => {
-            let _ = e.read_to_string(&mut manifest_txt);
+    let mut texts = std::collections::BTreeMap::new();
+    for name in [
+        "manifest.toml",
+        "integrity.toml",
+        "elements.toml",
+        "acetatos.toml",
+        "audio_events.toml",
+        "panoramas.toml",
+        "animations.toml",
+        "credits.toml",
+        "instruments.toml",
+        "game_profile.toml",
+        "entity_substitutions.toml",
+    ] {
+        if let Ok(entry) = zip.by_name(name) {
+            let mut bytes = Vec::new();
+            if let Err(e) = entry
+                .take(crate::pack_security::MAX_METADATA_BYTES + 1)
+                .read_to_end(&mut bytes)
+            {
+                r.error("io", format!("no se pudo leer {name}: {e}"));
+                return Err(r);
+            }
+            if bytes.len() as u64 > crate::pack_security::MAX_METADATA_BYTES {
+                r.error(
+                    "security.policy",
+                    format!("metadatos demasiado grandes: {name}"),
+                );
+                return Err(r);
+            }
+            match String::from_utf8(bytes) {
+                Ok(text) => {
+                    texts.insert(name.to_string(), text);
+                }
+                Err(e) => {
+                    r.error("catalog.malformed", format!("{name} no es UTF-8: {e}"));
+                    return Err(r);
+                }
+            }
         }
-        Err(_) => {
+    }
+    Ok(ValidationMetadata { names, texts })
+}
+
+/// Applies the canonical compatibility rules without opening the archive again.
+pub fn validate_metadata(metadata: &ValidationMetadata, ctx: &SessionCtx) -> Report {
+    let mut r = Report::default();
+    let names = &metadata.names;
+    // -- manifest.toml -------------------------------------------------------
+    let manifest_txt = match metadata.texts.get("manifest.toml") {
+        Some(text) => text,
+        None => {
             r.error(
                 "manifest.missing",
                 "el pack no trae manifest.toml — no hay forma de saber \
@@ -501,8 +567,8 @@ pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
             );
             return r; // sin manifest no queda nada que comparar
         }
-    }
-    let m: LaxManifest = match toml::from_str(&manifest_txt) {
+    };
+    let m: LaxManifest = match toml::from_str(manifest_txt) {
         Ok(m) => m,
         Err(e) => {
             r.error(
@@ -680,10 +746,11 @@ pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
     // barata para poder correr antes de cada sesión—; el hash por entrada lo
     // verifica la lectura, que es donde importa.
     if names.iter().any(|n| n == "integrity.toml") {
-        let mut txt = String::new();
-        if let Ok(mut e) = zip.by_name("integrity.toml") {
-            let _ = e.read_to_string(&mut txt);
-        }
+        let txt = metadata
+            .texts
+            .get("integrity.toml")
+            .map(String::as_str)
+            .unwrap_or("");
         #[derive(Deserialize, Default)]
         struct LaxEntry {
             path: String,
@@ -693,7 +760,7 @@ pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
             #[serde(default)]
             entry: Vec<LaxEntry>,
         }
-        match toml::from_str::<LaxIntegrity>(&txt) {
+        match toml::from_str::<LaxIntegrity>(txt) {
             Ok(idx) => {
                 if idx.entry.len() > MAX_ENTRY_COUNT {
                     r.error(
@@ -857,15 +924,10 @@ pub fn validate_path(path: &str, ctx: &SessionCtx) -> Report {
             if !names.iter().any(|n| n == cat) {
                 continue;
             }
-            let mut txt = String::new();
-            if zip
-                .by_name(cat)
-                .map(|mut e| e.read_to_string(&mut txt))
-                .is_err()
-            {
+            let Some(txt) = metadata.texts.get(cat) else {
                 continue;
-            }
-            if toml::from_str::<toml::Value>(&txt).is_err() {
+            };
+            if toml::from_str::<toml::Value>(txt).is_err() {
                 r.error(
                     "catalog.malformed",
                     format!(

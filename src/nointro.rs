@@ -69,7 +69,13 @@ impl DatFile {
     pub fn load(path: &Path) -> Option<Self> {
         let file = std::fs::File::open(path).ok()?;
         let reader = std::io::BufReader::new(file);
-        Some(Self::parse(reader))
+        let dat = Self::parse(reader);
+        eprintln!(
+            "[nointro] Loaded '{}': {} entries",
+            dat.platform_name,
+            dat.len()
+        );
+        Some(dat)
     }
 
     /// Look up a ROM by its CRC32.
@@ -171,11 +177,6 @@ impl DatFile {
             buf.clear();
         }
 
-        eprintln!(
-            "[nointro] Loaded '{}': {} entries",
-            platform_name,
-            entries.len()
-        );
         DatFile {
             entries,
             platform_name,

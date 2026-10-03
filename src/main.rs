@@ -45,6 +45,12 @@ mod launch_manifest;
 // #616: cuándo se actualiza un pack instalado. La decisión es pura y vive
 // acá; quién la ejecuta y la fila de Ajustes que elige la política entran con
 // su nota de diseño. Hasta entonces la sostienen sus oráculos.
+mod cache_metrics;
+mod catalog;
+mod catalog_scan;
+mod file_revision;
+mod inventory;
+mod io_budget;
 mod library;
 mod library_view;
 mod nointro;
@@ -60,6 +66,7 @@ mod porting;
 mod controls; // los controles del JUEGO: qué tecla/botón hace cada acción
 mod install; // #678: un pack entra desde el disco, con el mando
 mod logging; // #621: el log, con niveles y con redacción
+mod pack_cache;
 mod pack_details; // #312: la ficha del pack — lo declarado y lo auditado
 mod pack_install;
 mod pack_meta;
@@ -169,18 +176,10 @@ fn main() {
 
     log_info!("play", "carpeta de ROMs: {}", cfg0.rom_dir.display());
 
-    // ---- No-Intro DAT -------------------------------------------------------
-    let dat: Option<Arc<nointro::DatFile>> = cfg0
-        .dat_path
-        .as_deref()
-        .and_then(nointro::DatFile::load)
-        .map(Arc::new);
-    if let Some(d) = &dat {
-        eprintln!("[play] DAT: '{}' ({} entries)", d.platform_name, d.len());
-    }
-
-    // ---- La biblioteca ------------------------------------------------------
-    let lib = Arc::new(Mutex::new(library::Library::open(&cfg0.lib_path)));
+    let dat: Arc<Mutex<Option<Arc<nointro::DatFile>>>> = Arc::new(Mutex::new(None));
+    let store = catalog::Store::open_deferred(&cfg0.catalog_path()).expect("catalog worker");
+    let shutdown_store = store.clone();
+    let lib = Arc::new(Mutex::new(library::Library::deferred(store)));
     // #593 — el estado de la VISTA de la biblioteca.
     //
     // `todos` es la copia viva de la biblioteca; el modelo de Slint es una
@@ -202,6 +201,7 @@ fn main() {
     // `None` mientras no terminó, y `None` también si falló: los dos casos
     // significan lo mismo para el validador —no se pudo comprobar— y forzar un
     // valor inventado sería peor que no contestar.
+    pack_cache::init(lib.lock().unwrap().store());
     let core_build: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let all_items: Arc<Mutex<Vec<library::Game>>> = Arc::new(Mutex::new(Vec::new()));
@@ -234,27 +234,67 @@ fn main() {
     // primer componente (ver i18n::aplicar_a_slint).
     i18n::apply_to_slint();
 
-    // Pre-populate library from cache.
+    app.set_status(tr!("Cargando biblioteca…").into());
     {
-        let guard = lib.lock().unwrap();
-        let mut cached = guard.get_all();
-        if let Some(d) = dat.as_deref() {
-            library::enrich_with_dat(&mut cached, d);
-        }
-        library::find_covers(&mut cached, &cfg0.covers_dir);
-        let n = cached.iter().filter(|g| !g.hidden).count();
-        *all_items.lock().unwrap() = cached;
-        app.set_status(
-            if n == 1 {
-                tr!("{} juego en la biblioteca", n)
-            } else {
-                tr!("{} juegos en la biblioteca", n)
-            }
-            .into(),
+        let (weak, lib, dat, all_items, filter, order, cfg) = (
+            app.as_weak(),
+            lib.clone(),
+            dat.clone(),
+            all_items.clone(),
+            filter.clone(),
+            order.clone(),
+            cfg.clone(),
         );
+        let legacy = cfg0.lib_path.clone();
+        let dat_path = cfg0.dat_path.clone();
+        std::thread::spawn(move || {
+            let store = lib.lock().unwrap().store();
+            let read_only = store.read_only().unwrap_or(true);
+            CATALOG_WRITABLE.store(!read_only, Ordering::Release);
+            let recovery_error = if read_only {
+                None
+            } else {
+                pack_cache::global().and_then(|repo| repo.recover_promotions().err())
+            };
+            let result = lib.lock().unwrap().load(&legacy);
+            if result.is_ok() {
+                *all_items.lock().unwrap() = lib.lock().unwrap().get_all();
+            }
+            let weak_dat = weak.clone();
+            let dat2 = dat.clone();
+            // DAT loading does not delay the cached first view.
+            std::thread::spawn(move || {
+                *dat2.lock().unwrap() = dat_path
+                    .as_deref()
+                    .and_then(nointro::DatFile::load)
+                    .map(Arc::new);
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = weak_dat.upgrade()
+                        && !read_only
+                    {
+                        app.invoke_rescan();
+                    }
+                });
+            });
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = weak.upgrade() {
+                    match result {
+                        Ok(()) => {
+                            refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                            app.set_status(recovery_error.unwrap_or_else(|| if read_only {
+                                "Biblioteca en modo de solo lectura: las preferencias y las estadísticas no se guardarán.".into()
+                            } else { tr!("Biblioteca cargada") }).into());
+                            if !read_only {
+                                app.invoke_rescan();
+                            }
+                        }
+                        Err(error) => app
+                            .set_status(format!("No se pudo abrir la biblioteca: {error}").into()),
+                    }
+                }
+            });
+        });
     }
-    refresh_ui(&app, &all_items, &filter, &order, &cfg);
-
     // #601: la cola de sesiones sin cerrar, de la más nueva a la más vieja.
     //
     // Se pregunta UNA vez por sesión y no una sola vez en total: si Play murió
@@ -660,39 +700,90 @@ fn main() {
 
             let cover_game = inst.lock().unwrap().cover_game.clone();
             if let Some(rom) = cover_game {
-                // Decodificar antes de guardar: una extensión válida no garantiza una imagen.
-                let result = slint::Image::load_from_path(&path)
-                    .map_err(|_| tr!("No se pudo abrir la imagen. Elegí otra carátula."))
-                    .and_then(|_| {
-                        let mut games = all_items.lock().unwrap();
-                        let game = games
-                            .iter_mut()
-                            .find(|g| g.path == rom)
+                let (weak, inst, lib, all_items, filter, order, cfg) = (
+                    weak.clone(),
+                    inst.clone(),
+                    lib.clone(),
+                    all_items.clone(),
+                    filter.clone(),
+                    order.clone(),
+                    cfg.clone(),
+                );
+                std::thread::spawn(move || {
+                    let result = (|| -> Result<library::Game, String> {
+                        image::ImageReader::open(&path)
+                            .map_err(|e| e.to_string())?
+                            .with_guessed_format()
+                            .map_err(|e| e.to_string())?
+                            .decode()
+                            .map_err(|_| tr!("No se pudo abrir la imagen. Elegí otra carátula."))?;
+                        let mut library = lib.lock().unwrap();
+                        let mut game = library
+                            .known_games()
+                            .get(&rom)
+                            .cloned()
                             .ok_or_else(|| tr!("El juego ya no está en la biblioteca."))?;
                         game.user_art = Some(path.to_string_lossy().into_owned());
-                        lib.lock().unwrap().save_game(game);
-                        Ok(())
+                        library.save_game(&game)?;
+                        Ok(game)
+                    })();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(app) = weak.upgrade() else { return };
+                        let mut state = inst.lock().unwrap();
+                        state.phase = install::Phase::Browsing;
+                        match result {
+                            Ok(game) => {
+                                if let Some(current) = all_items
+                                    .lock()
+                                    .unwrap()
+                                    .iter_mut()
+                                    .find(|g| g.id == game.id)
+                                {
+                                    *current = game;
+                                }
+                                state.is_open = false;
+                                refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                            }
+                            Err(error) => state.cover_error = error,
+                        }
+                        render_install(&app, &state);
                     });
-                let mut e = inst.lock().unwrap();
-                e.phase = install::Phase::Browsing;
-                match result {
-                    Ok(()) => {
-                        e.is_open = false;
-                        refresh_ui(&app, &all_items, &filter, &order, &cfg);
-                    }
-                    Err(message) => e.cover_error = message,
-                }
-                render_install(&app, &e);
+                });
                 return;
             }
-
             let packs = cfg.lock().unwrap().packs_install_dir.clone();
             let (weak2, inst2) = (weak.clone(), Arc::clone(&inst));
+            INSTALL_CANCEL.store(false, Ordering::Release);
+            app.set_install_stage(tr!("Copiando pack…").into());
+            app.set_install_done(0);
+            app.set_install_total(0);
+            app.set_install_cancelable(true);
             std::thread::spawn(move || {
                 // El MISMO camino que `--install`: staging, auditoría antes de
                 // tocar nada, promoción atómica, generación anterior guardada.
                 let id = install::State::id_from(&path);
-                let r = pack_install::install_local(&packs, &id, &path);
+                let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+                let r = pack_install::install_local_progress(
+                    &packs,
+                    &id,
+                    &path,
+                    &INSTALL_CANCEL,
+                    &mut |stage, done, total| {
+                        if last.elapsed() < std::time::Duration::from_millis(100) && done != total {
+                            return;
+                        }
+                        last = std::time::Instant::now();
+                        let (weak, stage) = (weak2.clone(), stage.to_owned());
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = weak.upgrade() {
+                                app.set_install_cancelable(stage != "Finalizando…");
+                                app.set_install_stage(stage.into());
+                                app.set_install_done((done / 1024) as i32);
+                                app.set_install_total((total / 1024) as i32);
+                            }
+                        });
+                    },
+                );
                 let ok = matches!(r, pack_install::InstallResult::Installed { .. });
                 // El nombre y la versión se leen del pack YA PROMOVIDO: es lo
                 // que quedó instalado, no lo que el archivo elegido decía ser.
@@ -763,12 +854,24 @@ fn main() {
                 return;
             }
             let packs = cfg.lock().unwrap().packs_install_dir.clone();
-            // En el hilo de la UI a propósito: revertir son dos renames.
-            let rr = pack_install::rollback(&packs, &r.pack_id);
-            e.phase = install::Phase::Outcome(install::revert_outcome_of(&r.pack_id, &rr));
+            let id = r.pack_id.clone();
+            e.phase = install::Phase::Working;
+            app.set_install_stage("Restaurando pack…".into());
+            app.set_install_cancelable(false);
             render_install(&app, &e);
             drop(e);
-            app.invoke_rescan();
+            let (weak, inst) = (weak.clone(), inst.clone());
+            std::thread::spawn(move || {
+                let result = pack_install::rollback(&packs, &id);
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(app) = weak.upgrade() else { return };
+                    let mut state = inst.lock().unwrap();
+                    state.phase = install::Phase::Outcome(install::revert_outcome_of(&id, &result));
+                    render_install(&app, &state);
+                    drop(state);
+                    app.invoke_rescan();
+                });
+            });
         }
     });
 
@@ -778,6 +881,16 @@ fn main() {
         move || {
             let Some(app) = weak.upgrade() else { return };
             let mut e = inst.lock().unwrap();
+            if matches!(e.phase, install::Phase::Working) {
+                if !app.get_install_cancelable() {
+                    return;
+                }
+                if app.get_install_cancelable() {
+                    INSTALL_CANCEL.store(true, Ordering::Release);
+                    app.set_install_stage(tr!("Cancelando…").into());
+                }
+                return;
+            }
             if e.close() {
                 render_install(&app, &e);
             }
@@ -1006,6 +1119,10 @@ fn main() {
         let cfg = Arc::clone(&cfg);
         let pending = Arc::clone(&pending_destructive);
         let pack_removal = Arc::clone(&pending_pack_removal);
+        let lib = Arc::clone(&lib);
+        let games = Arc::clone(&all_items);
+        let filter = Arc::clone(&filter);
+        let order = Arc::clone(&order);
         move || {
             let Some(app) = weak.upgrade() else { return };
             // #620 — se ejecuta LA QUE SE CONFIRMÓ, y no «la de siempre». Hoy
@@ -1022,9 +1139,19 @@ fn main() {
                         return;
                     };
                     let packs = cfg.lock().unwrap().packs_install_dir.clone();
-                    let result = pack_install::uninstall_path(&packs, &path);
-                    app.set_toast_text(
-                        match result {
+                    app.invoke_details_cancel();
+                    app.set_details_pack_busy(true);
+                    let weak = app.as_weak();
+                    let (lib, games, filter, order, cfg) = (
+                        Arc::clone(&lib), Arc::clone(&games), Arc::clone(&filter),
+                        Arc::clone(&order), Arc::clone(&cfg),
+                    );
+                    std::thread::spawn(move || {
+                        let result = pack_install::uninstall_path(&packs, &path);
+                        let removed = matches!(result,
+                            pack_install::UninstallResult::Uninstalled { .. }
+                            | pack_install::UninstallResult::NotInstalled);
+                        let mut message = match result {
                             pack_install::UninstallResult::Uninstalled { .. } => {
                                 tr!("Pack desinstalado.")
                             }
@@ -1034,11 +1161,31 @@ fn main() {
                             pack_install::UninstallResult::Io(error) => {
                                 tr!("No se pudo desinstalar el pack: {}", error)
                             }
+                        };
+                        if removed {
+                            let saved = lib.lock().unwrap().forget_pack(&path.to_string_lossy());
+                            if let Err(error) = saved {
+                                message = format!("El pack ya no está en el disco, pero no se pudo actualizar la biblioteca: {error}");
+                            }
+                            if let Some(repo) = pack_cache::global()
+                                && let Err(error) = repo.invalidate(&path)
+                            {
+                                log_error!("play", "no se pudo invalidar el pack desinstalado: {error}");
+                            }
                         }
-                        .into(),
-                    );
-                    // Refresh even after partial IO failure: show what remains on disk.
-                    app.invoke_rescan();
+                        let _ = weak.upgrade_in_event_loop(move |app| {
+                            app.set_details_pack_busy(false);
+                            app.set_toast_text(message.into());
+                            if removed {
+                                let latest = lib.lock().unwrap().get_all();
+                                *games.lock().unwrap() = latest;
+                                refresh_ui(&app, &games, &filter, &order, &cfg);
+                                refresh_open_details(&app, &games, &cfg);
+                            }
+                            // Refresh after errors too, to show what remains on disk.
+                            app.invoke_rescan();
+                        });
+                    });
                 }
                 // Rehacer la bienvenida NO borra nada: baja la bandera y el
                 // wizard vuelve a aparecer con todo lo demás intacto.
@@ -1095,11 +1242,46 @@ fn main() {
     // formatear tres textos por frame sería trabajo por cada movimiento de la
     // cruceta. Es la misma decisión que ya tomó #312 para la ficha de pack, por
     // el mismo motivo.
+    let details_cancel = Arc::new(Mutex::new(Arc::new(AtomicBool::new(false))));
+    app.on_details_cancel({
+        let token = details_cancel.clone();
+        let weak = app.as_weak();
+        move || {
+            token.lock().unwrap().store(true, Ordering::Release);
+            if let Some(app) = weak.upgrade() {
+                app.set_details_activate_pack_path("".into());
+                if app.get_pack_checking() {
+                    app.set_pack_audit("Comprobación cancelada".into());
+                }
+                app.set_pack_checking(false);
+            }
+        }
+    });
     app.on_open_details({
         let weak = app.as_weak();
         let cfg = Arc::clone(&cfg);
+        let details_cancel = details_cancel.clone();
+        let details_lib = lib.clone();
+        let details_build = core_build.clone();
+        let details_items = all_items.clone();
+        let details_filter = filter.clone();
+        let details_order = order.clone();
         move |entry| {
             let Some(app) = weak.upgrade() else { return };
+            if app.get_details_activate_pack_path() != entry.pack_path
+                || app.get_details_game().path != entry.path
+            {
+                app.set_details_activate_pack_path("".into());
+            }
+            if PREPARING.load(Ordering::Acquire) {
+                PREPARE_CANCEL.store(true, Ordering::Release);
+            }
+            let token = Arc::new(AtomicBool::new(false));
+            details_cancel
+                .lock()
+                .unwrap()
+                .store(true, Ordering::Release);
+            *details_cancel.lock().unwrap() = token.clone();
             let rom = std::path::PathBuf::from(entry.path.as_str());
             let pack = (!entry.pack_path.is_empty())
                 .then(|| std::path::PathBuf::from(entry.pack_path.as_str()));
@@ -1141,7 +1323,7 @@ fn main() {
             // se lee de `entry`: la ficha se abre después del arranque, y el
             // sondeo puede haber terminado entre que se armó el modelo y que el
             // jugador apretó A.
-            let core = cores::state(&cfg.lock().unwrap(), entry.platform.as_str());
+            let core = cores::cached_state(&cfg.lock().unwrap(), entry.platform.as_str());
             let e = game_details::axes(
                 &codes,
                 has_pack,
@@ -1152,14 +1334,10 @@ fn main() {
             );
 
             app.set_details_game(entry.clone());
-            app.set_details_pack_count(
-                all_items_for_details
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .find(|g| g.path == entry.path.as_str())
-                    .map_or(0, |g| g.available_packs.len() as i32),
-            );
+            render_details_pack_list(&app, &all_items_for_details.lock().unwrap());
+            // A historical selection can outlive an uninstall; it is not a file
+            // to inspect and must never appear among the installed options.
+            let pack = pack.filter(|_| app.get_details_selected_pack_present());
             let profile = launch_config::config_path(
                 &config::Config::config_dir(),
                 &rom,
@@ -1294,51 +1472,146 @@ fn main() {
             //
             // Lo que la fila NO dice es de quién es el pack. CE no lo sabe y no
             // lo inventa: ver el comentario de `verifier.rs`.
-            app.set_pack_name(tr!("Leyendo el pack…").as_str().into());
+            app.set_pack_name("".into());
             app.set_pack_author("".into());
             app.set_pack_audit("".into());
             app.set_pack_audit_ok(false);
-            if let Some(p) = pack {
-                let crc = entry.crc32.to_string();
-                let rom_path = entry.path.to_string();
-                let weak2 = weak.clone();
-                std::thread::spawn(move || {
-                    let d = pack_details::read(&p, (!crc.is_empty()).then_some(crc.as_str()));
-                    let name = if d.name.is_empty() {
-                        p.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .into_owned()
+            app.set_pack_checking(false);
+            let (lib, weak2, build) = (
+                details_lib.clone(),
+                weak.clone(),
+                details_build.lock().unwrap().clone(),
+            );
+            let rom_path = entry.path.to_string();
+            let configuration = cfg.lock().unwrap().clone();
+            let (items, filter, order, cfg_view) = (
+                details_items.clone(),
+                details_filter.clone(),
+                details_order.clone(),
+                cfg.clone(),
+            );
+            std::thread::spawn(move || {
+                let result = (|| -> Result<_, String> {
+                    let (_rom_guard, mut game) = library::prepare_rom(&lib, &rom, &token)?;
+                    let details = if let Some(path) = &pack {
+                        let repo =
+                            pack_cache::global().ok_or("La caché todavía no está disponible")?;
+                        let mut last =
+                            std::time::Instant::now() - std::time::Duration::from_secs(1);
+                        let snapshot = repo.inspect(path, &token, &mut |done, total| {
+                            if last.elapsed() >= std::time::Duration::from_millis(100) {
+                                last = std::time::Instant::now();
+                                let (weak, token, rom) =
+                                    (weak2.clone(), token.clone(), rom_path.clone());
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    if !token.load(Ordering::Acquire)
+                                        && let Some(app) = weak.upgrade()
+                                        && app.get_details_game().path.as_str() == rom
+                                    {
+                                        app.set_pack_checking(true);
+                                        app.set_pack_progress(if total == 0 {
+                                            0.0
+                                        } else {
+                                            done as f32 / total as f32
+                                        });
+                                        app.set_pack_audit("Comprobando pack…".into());
+                                    }
+                                });
+                            }
+                        })?;
+                        let context = ayther_core::pack_validate::SessionCtx {
+                            rom_crc32: u32::from_str_radix(&game.crc32, 16).ok(),
+                            platform: library::platform_id(&game.platform),
+                            core_build_id: build.as_deref(),
+                            ..Default::default()
+                        };
+                        let details = pack_details::from_snapshot(&snapshot, &context);
+                        library::enrich_pack_status(
+                            std::slice::from_mut(&mut game),
+                            build.as_deref(),
+                        );
+                        Some(details)
                     } else {
-                        d.name.clone()
+                        None
                     };
-                    let author_label = format!(
-                        "{} · {}",
-                        if d.author.is_empty() {
-                            tr!("sin autor declarado")
-                        } else {
-                            d.author.clone()
-                        },
-                        d.version
-                    );
-                    // «Sin índice» no es un problema y no se pinta como tal: es
-                    // un pack viejo, de antes de #332, y se juega igual.
-                    let ok = d.audit == verifier::Audit::Complete;
-                    let word = d.audit.word();
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(app) = weak2.upgrade()
-                            && app.get_details_game().pack_path.as_str() == p.to_string_lossy()
-                            && app.get_details_game().path.as_str() == rom_path
-                        {
-                            app.set_pack_name(name.as_str().into());
-                            app.set_pack_author(author_label.as_str().into());
-                            app.set_pack_audit_ok(ok);
-                            app.set_pack_audit(word.as_str().into());
+                    if token.load(Ordering::Acquire) {
+                        return Err("Comprobación cancelada".into());
+                    }
+                    // Merge derived results into the latest row, keeping player edits.
+                    let mut library = lib.lock().unwrap();
+                    if let Some(mut latest) = library.known_games().get(&game.path).cloned()
+                        && latest.id == game.id
+                        && latest.pack_path == game.pack_path
+                    {
+                        latest.pack_status = game.pack_status;
+                        latest.compat_reason = game.compat_reason;
+                        latest.compat_codes = game.compat_codes;
+                        if !library.store().read_only()? {
+                            library.save_game(&latest)?;
                         }
-                    })
-                    .ok();
+                        game = latest;
+                    }
+                    Ok((game, details))
+                })();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if token.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let Some(app) = weak2.upgrade() else { return };
+                    if !app.get_details_open() || app.get_details_game().path.as_str() != rom_path {
+                        return;
+                    }
+                    app.set_pack_checking(false);
+                    match result {
+                        Err(error) => {
+                            app.set_pack_audit(error.as_str().into());
+                            app.set_status(error.into());
+                        }
+                        Ok((game, details)) => {
+                            if let Some(row) =
+                                items.lock().unwrap().iter_mut().find(|g| g.id == game.id)
+                            {
+                                *row = game.clone();
+                            }
+                            refresh_ui(&app, &items, &filter, &order, &cfg_view);
+                            app.set_details_game(game_entry(&game, &configuration));
+                            if let Some(d) = details {
+                                let core = cores::cached_state(&configuration, &game.platform);
+                                let axes = game_details::axes(
+                                    &game.compat_codes,
+                                    game.has_pack,
+                                    game.pack_status,
+                                    &game.compat_reason,
+                                    &core,
+                                    &game.platform,
+                                );
+                                app.set_details_pack_status(axes.pack.state.as_int());
+                                app.set_details_pack_reason(axes.pack_reason().into());
+                                app.set_details_pack_usable(axes.pack_usable());
+                                app.set_details_pack_warning(axes.short_pack_reason().into());
+                                app.set_pack_name(d.name.as_str().into());
+                                app.set_pack_author(format!("{} · {}", d.author, d.version).into());
+                                app.set_pack_audit_ok(d.audit == verifier::Audit::Complete);
+                                app.set_pack_audit(d.audit.word().into());
+                                app.set_details_pack_usage_status(
+                                    game_details::PackState::of(
+                                        game.has_pack,
+                                        axes.pack_usable(),
+                                        app.get_details_hd(),
+                                    )
+                                    .as_int(),
+                                );
+                                if app.get_details_activate_pack_path().as_str() == game.pack_path {
+                                    app.set_details_activate_pack_path("".into());
+                                    if axes.pack_usable() && !app.get_details_hd() {
+                                        app.invoke_details_toggle_hd();
+                                    }
+                                }
+                            }
+                        }
+                    }
                 });
-            }
+            });
             let _ = &cfg;
             app.set_details_open(true);
         }
@@ -1424,6 +1697,19 @@ fn main() {
             app.invoke_launch_entry(game);
         }
     });
+    app.on_details_play_original({
+        let weak = app.as_weak();
+        move || {
+            let Some(app) = weak.upgrade() else { return };
+            let mut game = app.get_details_game();
+            game.has_pack = false;
+            game.pack_path = "".into();
+            app.invoke_details_cancel();
+            app.set_clean_run(false);
+            app.set_details_open(false);
+            app.invoke_launch_entry(game);
+        }
+    });
     // #598/#633 — poner o sacar el pack. Escribe la configuración de ESTA
     // combinación ROM+pack y no lanza: es reversible y se puede mover varias
     // veces antes de jugar. Lo que fija es el perfil que va a ir al manifest de
@@ -1499,7 +1785,25 @@ fn main() {
         }
     });
 
-    app.on_details_next_pack({
+    app.on_details_toggle_pack({
+        let weak = app.as_weak();
+        move |path| {
+            let Some(app) = weak.upgrade() else { return };
+            if app.get_scanning() || app.get_details_pack_busy() {
+                return;
+            }
+            if path == app.get_details_game().pack_path {
+                app.invoke_details_toggle_hd();
+            } else {
+                app.invoke_details_select_pack(path.clone());
+                // Fulfil the explicit ON request only after the chosen pack's
+                // inspection has completed for the still-open game.
+                app.set_details_activate_pack_path(path);
+            }
+        }
+    });
+
+    app.on_details_select_pack({
         let weak = app.as_weak();
         let games = Arc::clone(&all_items);
         let lib = Arc::clone(&lib);
@@ -1507,28 +1811,24 @@ fn main() {
         let filter = Arc::clone(&filter);
         let order = Arc::clone(&order);
         let core_build = Arc::clone(&core_build);
-        move || {
+        move |pack_path| {
             let Some(app) = weak.upgrade() else { return };
             if app.get_scanning() || app.get_details_pack_busy() {
                 return;
             }
+            app.set_details_activate_pack_path("".into());
             let entry = app.get_details_game();
             let mut selected = {
                 let games = games.lock().unwrap();
                 let Some(game) = games.iter().find(|g| g.path == entry.path.as_str()) else {
                     return;
                 };
-                if game.available_packs.len() < 2 {
+                if !game.available_packs.iter().any(|p| p == pack_path.as_str()) {
                     return;
                 }
                 let mut selected = game.clone();
-                let index = game
-                    .available_packs
-                    .iter()
-                    .position(|p| p == &game.pack_path)
-                    .unwrap_or(0);
-                selected.pack_path =
-                    game.available_packs[(index + 1) % game.available_packs.len()].clone();
+                selected.pack_path = pack_path.to_string();
+                selected.has_pack = true;
                 selected
             };
             app.set_details_pack_busy(true);
@@ -1544,9 +1844,14 @@ fn main() {
             std::thread::spawn(move || {
                 // Grade before publishing: never pair the new path with the old verdict.
                 library::enrich_pack_status(std::slice::from_mut(&mut selected), build.as_deref());
+                let saved = lib.lock().unwrap().save_game(&selected);
                 slint::invoke_from_event_loop(move || {
                     let Some(app) = weak.upgrade() else { return };
                     app.set_details_pack_busy(false);
+                    if let Err(error) = saved {
+                        app.set_status(format!("No se guardó la selección: {error}").into());
+                        return;
+                    }
                     let entry = {
                         let mut games = games.lock().unwrap();
                         let Some(game) = games.iter_mut().find(|g| g.path == selected.path) else {
@@ -1556,10 +1861,11 @@ fn main() {
                             return;
                         }
                         game.pack_path = selected.pack_path;
+                        game.has_pack = true;
                         game.pack_status = selected.pack_status;
                         game.compat_reason = selected.compat_reason;
                         game.compat_codes = selected.compat_codes;
-                        lib.lock().unwrap().save_game(game);
+
                         build_game_model_from(
                             std::slice::from_ref(game),
                             &[0],
@@ -1580,12 +1886,31 @@ fn main() {
         }
     });
 
+    app.on_details_next_pack({
+        let weak = app.as_weak();
+        move || {
+            let Some(app) = weak.upgrade() else { return };
+            let packs = app.get_details_packs();
+            if packs.row_count() == 0 {
+                return;
+            }
+            let selected = app.get_details_game().pack_path;
+            let index = packs
+                .iter()
+                .position(|p| p.path == selected)
+                .map_or(0, |i| (i + 1) % packs.row_count());
+            if let Some(pack) = packs.row_data(index) {
+                app.invoke_details_select_pack(pack.path);
+            }
+        }
+    });
+
     app.on_details_uninstall_pack({
         let weak = app.as_weak();
         let games = Arc::clone(&all_items);
         let pending = Arc::clone(&pending_destructive);
         let pack_removal = Arc::clone(&pending_pack_removal);
-        move || {
+        move |pack_path| {
             let Some(app) = weak.upgrade() else { return };
             if app.get_scanning() || app.get_details_pack_busy() {
                 return;
@@ -1595,10 +1920,10 @@ fn main() {
             let Some(game) = games.iter().find(|g| g.path == entry.path.as_str()) else {
                 return;
             };
-            if !game.has_pack || !game.available_packs.contains(&entry.pack_path.to_string()) {
+            if !game.available_packs.iter().any(|p| p == pack_path.as_str()) {
                 return;
             }
-            let path = std::path::PathBuf::from(entry.pack_path.as_str());
+            let path = std::path::PathBuf::from(pack_path.as_str());
             let action = settings::Destructive::RemovePack;
             app.set_confirm_title(i18n::gettext(action.title()).into());
             app.set_confirm_keeps(
@@ -1646,37 +1971,62 @@ fn main() {
     // que no se viera hasta el próximo escaneo.
     let apply = {
         let (all_items, filter, order, cfg, lib) = (
-            Arc::clone(&all_items),
-            Arc::clone(&filter),
-            Arc::clone(&order),
-            Arc::clone(&cfg),
-            Arc::clone(&lib),
+            all_items.clone(),
+            filter.clone(),
+            order.clone(),
+            cfg.clone(),
+            lib.clone(),
         );
         move |weak: &slint::Weak<AppWindow>, visible_index: i32, f: &dyn Fn(&mut library::Game)| {
-            let Some(app) = weak.upgrade() else { return };
-            let updated_game = {
-                let mut g = all_items.lock().unwrap();
-                let visible_indices = {
-                    let fl = filter.lock().unwrap();
-                    library_view::visible_indices(&g, &fl, *order.lock().unwrap())
-                };
-                match visible_indices.get(visible_index.max(0) as usize).copied() {
-                    Some(i) => {
-                        f(&mut g[i]);
-                        Some(g[i].clone())
-                    }
-                    None => None,
-                }
+            let updated = {
+                let games = all_items.lock().unwrap();
+                let indices = library_view::visible_indices(
+                    &games,
+                    &filter.lock().unwrap(),
+                    *order.lock().unwrap(),
+                );
+                indices.get(visible_index.max(0) as usize).map(|&index| {
+                    let before = games[index].clone();
+                    let mut game = before.clone();
+                    f(&mut game);
+                    (before, game)
+                })
             };
-            if let Some(game) = updated_game {
-                if let Ok(mut l) = lib.lock() {
-                    l.save_game(&game);
-                }
-                refresh_ui(&app, &all_items, &filter, &order, &cfg);
-            }
+            let Some((before, game)) = updated else {
+                return;
+            };
+            let (weak, all_items, filter, order, cfg, lib) = (
+                weak.clone(),
+                all_items.clone(),
+                filter.clone(),
+                order.clone(),
+                cfg.clone(),
+                lib.clone(),
+            );
+            std::thread::spawn(move || {
+                let result = lib.lock().unwrap().save_user_edit(&before, &game);
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(app) = weak.upgrade() else { return };
+                    match result {
+                        Ok(game) => {
+                            if let Some(current) = all_items
+                                .lock()
+                                .unwrap()
+                                .iter_mut()
+                                .find(|g| g.id == game.id)
+                            {
+                                *current = game;
+                            }
+                            refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                        }
+                        Err(error) => {
+                            app.set_status(format!("No se guardó el cambio: {error}").into())
+                        }
+                    }
+                });
+            });
         }
     };
-
     app.on_game_favorite({
         let weak = app.as_weak();
         let apply = apply.clone();
@@ -1757,14 +2107,11 @@ fn main() {
         };
         let cb = Arc::clone(&core_build);
         let weak = app.as_weak();
-        let (cfg2, lib2, dat2, cancel2, all_items2, filter2, order2) = (
-            Arc::clone(&cfg),
-            Arc::clone(&lib),
-            dat.clone(),
-            Arc::clone(&scan_cancel),
-            Arc::clone(&all_items),
-            Arc::clone(&filter),
-            Arc::clone(&order),
+        let (cfg2, all_items2, filter2, order2) = (
+            cfg.clone(),
+            all_items.clone(),
+            filter.clone(),
+            order.clone(),
         );
         std::thread::spawn(move || {
             for path in paths {
@@ -1792,17 +2139,7 @@ fn main() {
             // pasa de «Compatible» a «El core no sirve» justo acá.
             slint::invoke_from_event_loop(move || {
                 if let Some(app) = weak.upgrade() {
-                    do_scan(
-                        app.as_weak(),
-                        cfg2,
-                        lib2,
-                        dat2,
-                        cancel2,
-                        all_items2,
-                        filter2,
-                        order2,
-                        cb,
-                    );
+                    refresh_ui(&app, &all_items2, &filter2, &order2, &cfg2);
                 }
             })
             .ok();
@@ -1932,195 +2269,98 @@ fn main() {
     // `launch(i)` quedó como el atajo de la biblioteca, y ahora delega acá.
     app.on_launch_entry({
         let weak = app.as_weak();
-        let pending_launch = Arc::clone(&pending_launch);
-        // #604: la carpeta de guardados, para resolver desde dónde reanudar.
-        let cfg = Arc::clone(&cfg);
-        // #654: si esta pulsación vino de «Configurar», la pantalla previa se
-        // abre aunque el juego ya esté configurado.
-        let force_configuration = Arc::clone(&force_configuration);
+        let pending_launch = pending_launch.clone();
+        let cfg = cfg.clone();
+        let lib = lib.clone();
+        let core_build = core_build.clone();
+        let force_configuration = force_configuration.clone();
         move |entry| {
             let Some(app) = weak.upgrade() else { return };
-            if app.get_playing() {
-                return;
-            }
-
-            // #642 — NO SE LANZA LO QUE NO PUEDE CORRER.
-            //
-            // El botón «Jugar» ya está en gris cuando el core falta o el sondeo
-            // lo rechazó, pero el botón no es la única puerta: A del mando
-            // invoca este mismo callback sin pasar por él. Sin esta guarda, la
-            // ficha decía «El core no sirve» con el botón apagado y el mando lo
-            // lanzaba igual — y el jugador se encontraba con el error del
-            // runtime, que es exactamente lo que el semáforo existe para evitar.
-            //
-            // Va acá y no en la UI porque acá entran todos: la tarjeta, la
-            // ficha, «Continuar» y «Partida nueva».
-            {
-                let state = cores::state(&cfg.lock().unwrap(), entry.platform.as_str());
-                if state.blocks_launch() {
-                    log_warning!(
-                        "play",
-                        "no se lanza: el core de {} no sirve ({state:?})",
-                        entry.platform
-                    );
-                    return;
-                }
-            }
-
+            if app.get_playing() || PREPARING.swap(true, Ordering::AcqRel) { return; }
+            PREPARE_CANCEL.store(false, Ordering::Release);
+            let configuration = cfg.lock().unwrap().clone();
             let rom = std::path::PathBuf::from(entry.path.as_str());
-            // La ruta del pack sale de la BIBLIOTECA, que ya resolvió .ay
-            // (formato actual) con .ae de legacy. Acá se derivaba de nuevo con
-            // la extensión vieja fija, así que sobre un pack .ay —o sea, sobre
-            // todo pack horneado desde el rebranding— la pantalla previa abría
-            // una ruta missing: sin capacidades, sin perfiles y sin
-            // créditos, en silencio.
-            let pack = entry
-                .has_pack
-                .then(|| std::path::PathBuf::from(entry.pack_path.as_str()))
-                .filter(|p| !p.as_os_str().is_empty())
-                // #631 — UN PACK QUE NO SIRVE NO ENTRA A LA SESIÓN.
-                //
-                // El botón ya no depende del pack, así que este juego se va a
-                // lanzar igual; lo que no puede pasar es que arranque CON un
-                // pack que el validador rechazó. Sin este filtro, el jugador
-                // que sólo quería jugar el original vería el juego partido —un
-                // pack de otra ROM sustituye donde no va— y no tendría manera
-                // de relacionarlo con el archivo que sobra.
-                //
-                // El grado viene de la biblioteca, que ya lo calculó en el
-                // escaneo (`enrich_pack_status`): acá no se abre ningún `.ay`.
-                .filter(|_| entry.pack_status != library::PackStatus::Incompatible.as_int());
+            let pack = entry.has_pack.then(|| std::path::PathBuf::from(entry.pack_path.as_str())).filter(|p| !p.as_os_str().is_empty());
+            let name = entry.name.to_string();
+            let platform = entry.platform.to_string();
 
-            // Las capacidades salen del PACK. Sin pack, la pantalla ofrece sólo
-            // lo que no depende de él (audio y shaders) — y lo dice.
-            let caps = match pack.as_deref() {
-                Some(p) => pack_meta::capabilities(p),
-                None => launch_config::PackCapabilities::default(),
-            };
-            let lc_dir = config::Config::config_dir().join("launch");
-            let lc_file = launch_config::config_path(&lc_dir, &rom, pack.as_deref());
-            let mut lc = launch_config::load(&lc_file);
-            // Lo guardado puede venir de otra versión del pack.
-            lc.clamp_to(&caps);
-
-            let pack_name = pack
-                .as_deref()
-                .and_then(|p| pack_meta::read(p).1)
-                .map(|i| i.name)
-                .unwrap_or_default();
-
-            // #604 — ¿desde dónde se reanuda?
-            //
-            // Del perfil con el que se va a jugar, que es el que la
-            // configuración previa ya resolvió. Un guardado de OTRA revisión
-            // de la ROM no se ofrece: un savestate es una foto de la memoria y
-            // cargarlo sobre otra revisión no da un error, da un juego que se
-            // comporta raro media hora después.
-            let resume_from = if app.get_clean_run() {
-                None
-            } else {
-                let saves = cfg.lock().unwrap().saves_dir.clone();
-                let gid = rom
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown");
-                let profile = if lc.profile.is_empty() {
-                    saves::DEFAULT_PROFILE
-                } else {
-                    lc.profile.as_str()
-                };
-                saves::last(&saves, gid, profile)
-                    .filter(|v| v.is_compatible_with(&entry.crc32))
-                    .map(|v| v.path)
-            };
-
-            app.set_config_game(entry.name.clone());
-            app.set_config_pack(pack_name.into());
-            app.set_config_row(0);
-            app.set_config_rows(build_config_model(&caps, &lc));
-            // #314: los créditos se leen del pack acá —una sola vez, al abrir—
-            // y no al pintar: la pantalla no lee del disco mientras el jugador
-            // mueve la cruceta. Sin pack la lista queda vacía y el panel lo
-            // dice.
-            app.set_credit_lines(build_credit_model(pack.as_deref()));
-            app.set_credits_open(false);
-            // #312: la ficha, armada UNA vez al abrir. Con el CRC32 de la ROM
-            // que el jugador tiene: sin él, el validador no puede contestar si
-            // el pack es para ESE juego, y «compatible» sin haber comparado
-            // nada es justo lo que la issue anota como riesgo.
-            {
-                let crc = entry.crc32.to_string();
-                let d = pack
-                    .as_deref()
-                    .map(|p| {
-                        pack_details::read(
-                            p,
-                            if crc.is_empty() {
-                                None
-                            } else {
-                                Some(crc.as_str())
-                            },
-                        )
-                    })
-                    .unwrap_or_default();
-                app.set_detail_rows(build_detail_model(&d));
-                app.set_detail_pack(if d.name.is_empty() {
-                    "Sin pack".into()
-                } else {
-                    d.name.clone().into()
-                });
-                app.set_detail_compat(d.compat_label().into());
-                app.set_detail_playable(d.playable());
-                app.set_detail_open(false);
-            }
-            // #654 — LA PANTALLA PREVIA ES DE LA PRIMERA VEZ, NO DE CADA VEZ.
-            //
-            // «Jugar» abría siempre esta pantalla, así que volver a un juego
-            // costaba dos pasos para confirmar lo mismo que la vez anterior.
-            // Ahora sólo aparece cuando NO hay nada configurado todavía —el
-            // TOML por combinación de ROM y pack (`config_path`)— y a partir de
-            // ahí Jugar arranca con lo que se guardó. Cambiarlo es el botón
-            // «Configurar», que fuerza la pantalla.
-            //
-            // La condición es la EXISTENCIA del archivo y no un flag global: la
-            // pantalla ofrece lo que el pack permite, así que estrenar un juego
-            // —o el mismo juego con otro pack— vuelve a tener opciones que el
-            // jugador nunca vio. Un flag global se las saltearía justo ahí.
-            let already_configured = lc_file.exists();
+            let clean = app.get_clean_run();
             let forced = force_configuration.swap(false, Ordering::Relaxed);
-            let open_screen = launch_config::open_prelaunch(already_configured, forced);
-
-            app.set_config_open(open_screen);
-
-            *pending_launch.lock().unwrap() = Some(PendingLaunch {
-                rom,
-                pack,
-                caps,
-                cfg: lc,
-                file: lc_file,
-                name: entry.name.to_string(),
-                crc32: entry.crc32.to_string(),
-                resume_from,
-                // Saltear la pantalla no cambió nada que valga la pena
-                // reescribir: lo que se va a guardar es lo mismo que se acaba
-                // de leer del disco.
-                remember_configuration: open_screen,
+            let (weak, pending_launch, lib, build) = (weak.clone(), pending_launch.clone(), lib.clone(), core_build.lock().unwrap().clone());
+            app.set_status(tr!("Preparando juego…").into());
+            app.set_scanning(true);
+            app.set_scan_stage(tr!("Preparando juego…").into());
+            app.set_scan_done(0);
+            app.set_scan_total(0);
+            std::thread::spawn(move || {
+                let prepared = (|| -> Result<_, String> {
+                    if cores::state(&configuration, &platform).blocks_launch() { return Err("No se puede iniciar este juego con el core configurado.".into()); }
+                    let (rom_guard, prepared_game) = library::prepare_rom(&lib, &rom, &PREPARE_CANCEL)?;
+                    let crc = prepared_game.crc32;
+                    let file = launch_config::config_path(&config::Config::config_dir(), &rom, pack.as_deref());
+                    let already_configured = file.is_file();
+                    let mut lc = launch_config::load(&file);
+                    let pack = if !lc.is_hd() && !forced { None } else { pack };
+                    let mut reservations = vec![Arc::new(rom_guard)];
+                    let details = if let Some(path) = &pack {
+                        let guard = file_revision::reserve(path).map_err(|e|format!("El pack seleccionado no está disponible o está en uso: {e}. Elegí otro pack o jugá al original."))?;
+                        reservations.push(Arc::new(guard));
+                        let repo = pack_cache::global().ok_or("La caché de packs todavía no está disponible")?;
+                        let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+                        let snapshot = repo.inspect(path, &PREPARE_CANCEL, &mut |done,total| {
+                            if last.elapsed() >= std::time::Duration::from_millis(100) || done == total {
+                                scan_progress(weak.clone(), tr!("Comprobando pack…"), (done/1024) as usize, (total/1024) as usize);
+                                last = std::time::Instant::now();
+                            }
+                        })?;
+                        let context = ayther_core::pack_validate::SessionCtx { rom_crc32: u32::from_str_radix(&crc,16).ok(), platform: library::platform_id(&platform), core_build_id: build.as_deref(), ..Default::default() };
+                        let details = pack_details::from_snapshot(&snapshot, &context);
+                        if !details.playable() { return Err(format!("No se puede usar el pack seleccionado: {}. Elegí otro pack o jugá al original.",details.compat_label())); }
+                        details
+                    } else { pack_details::PackDetails::default() };
+                    let caps = pack.as_deref().map(pack_meta::capabilities).unwrap_or_default();
+                    lc.clamp_to(&caps);
+                    let resume_from = if clean { None } else {
+                        let gid = rom.file_stem().and_then(|s|s.to_str()).unwrap_or("unknown");
+                        let profile = if lc.profile.is_empty() { saves::DEFAULT_PROFILE } else { lc.profile.as_str() };
+                        saves::last(&configuration.saves_dir, gid, profile).filter(|v|v.is_compatible_with(&crc)).map(|v|v.path)
+                    };
+                    if PREPARE_CANCEL.load(Ordering::Acquire) { return Err("Preparación cancelada".into()); }
+                    let open_screen = launch_config::open_prelaunch(already_configured, forced);
+                    Ok((PendingLaunch { rom, crc32: crc, pack, caps, cfg: lc, file, name, resume_from, remember_configuration: open_screen, reservations }, details, open_screen))
+                })();
+                let _ = slint::invoke_from_event_loop(move || {
+                    PREPARING.store(false, Ordering::Release);
+                    let Some(app) = weak.upgrade() else { return };
+                    app.set_scanning(false);
+                    match prepared {
+                        Err(error) => app.set_status(error.into()),
+                        Ok((pending, details, open_screen)) => {
+                            if PREPARE_CANCEL.load(Ordering::Acquire) {
+                                app.set_status("Preparación cancelada".into());
+                                return;
+                            }
+                            app.set_config_game(pending.name.as_str().into());
+                            app.set_config_pack(details.name.as_str().into());
+                            app.set_config_row(0);
+                            app.set_config_rows(build_config_model(&pending.caps, &pending.cfg));
+                            app.set_credit_lines(build_credit_model(pending.pack.as_deref()));
+                            app.set_credits_open(false);
+                            app.set_detail_rows(build_detail_model(&details));
+                            app.set_detail_pack(details.name.as_str().into());
+                            app.set_detail_compat(details.compat_label().into());
+                            app.set_detail_playable(details.playable());
+                            app.set_detail_open(false);
+                            app.set_config_open(open_screen);
+                            *pending_launch.lock().unwrap() = Some(pending);
+                            app.set_clean_run(false);
+                            if !open_screen { app.invoke_config_accept(); }
+                        }
+                    }
+                });
             });
-            // La bandera vale para UNA pulsación: dejarla puesta haría que el
-            // siguiente «Continuar» empezara de cero sin que nadie lo pidiera.
-            app.set_clean_run(false);
-
-            // #654 — el lanzamiento sigue siendo UNO. Saltear la pantalla es
-            // invocar lo que su botón «Jugar» invoca, con el pendiente ya
-            // armado: copiar acá el spawn habría dejado dos caminos que
-            // divergen en cuanto uno de los dos toque el guardado en la nube,
-            // la telemetría o el balance de la sesión.
-            if !open_screen {
-                app.invoke_config_accept();
-            }
         }
     });
-
     app.on_config_adjust({
         let weak = app.as_weak();
         let pending_launch = Arc::clone(&pending_launch);
@@ -2182,9 +2422,36 @@ fn main() {
         let order  = Arc::clone(&order);
         move || {
             let Some(app) = weak.upgrade() else { return };
-            let Some(p) = pending_launch.lock().unwrap().take() else {
+            let Some(mut p) = pending_launch.lock().unwrap().take() else {
                 return;
             };
+            if p.reservations.is_empty() {
+                PREPARING.store(true, Ordering::Release);
+                PREPARE_CANCEL.store(false, Ordering::Release);
+                let (weak, lib, pending) = (weak.clone(), lib.clone(), pending_launch.clone());
+                std::thread::spawn(move || {
+                    let result = library::prepare_rom(&lib, &p.rom, &PREPARE_CANCEL);
+                    let _ = slint::invoke_from_event_loop(move || {
+                        PREPARING.store(false, Ordering::Release);
+                        let Some(app) = weak.upgrade() else { return };
+                        match result {
+                            Ok((file, game)) if !PREPARE_CANCEL.load(Ordering::Acquire) => {
+                                p.reservations.push(Arc::new(file));
+                                p.crc32 = game.crc32;
+                                *pending.lock().unwrap() = Some(p);
+                                app.invoke_config_accept();
+                            }
+                            Ok(_) => app.set_status("Preparación cancelada".into()),
+                            Err(error) => app.set_status(error.into()),
+                        }
+                    });
+                });
+                return;
+            }
+            if !p.cfg.is_hd() {
+                p.pack = None;
+                p.reservations.truncate(1);
+            }
             app.set_config_open(false);
             // Se guarda al ACEPTAR y no en cada movimiento: lo que se persiste
             // es con qué se jugó, no por dónde pasó el cursor. El modo seguro
@@ -2384,6 +2651,7 @@ fn main() {
 
             let trust_registry = cfg.lock().unwrap().pack_trust_registry(p.pack.as_deref()).map(std::path::Path::to_path_buf);
             spawn::launch(spawn::LaunchRequest {
+                          reservations: &p.reservations,
                           runtime: &runtime, core: &core, rom: &p.rom,
                           pack: p.pack.as_deref(), game_name: name,
                           trust_registry: trust_registry.as_deref(),
@@ -2412,7 +2680,22 @@ fn main() {
                         // Un aviso se MUESTRA y no corta. Es la unica
                         // oportunidad de decir «esto arranca sin musica» antes
                         // de que el jugador lo note oyendo.
-                        Ev::Warning { reason, .. } => app.set_session_warning(reason.as_str().into()),
+                        warning @ Ev::Warning { .. } => {
+                            let text = runtime_event::audio_diagnostic_message(
+                                &warning,
+                                &i18n::lang(),
+                            )
+                            .or_else(|| runtime_event::music_warning_message(
+                                &warning,
+                                &i18n::lang(),
+                            ))
+                            .or_else(|| match &warning {
+                                Ev::Warning { reason, .. } => Some(reason.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_default();
+                            app.set_session_warning(text.as_str().into());
+                        }
                         // Un error SI cierra el overlay: si la sesion no
                         // arranco, «Preparando» se quedaria puesto para siempre.
                         Ev::Error { reason, .. } => {
@@ -2460,8 +2743,12 @@ fn main() {
                 // no anotarlo haría que «Continuar» ofreciera el anterior —
                 // justo cuando lo que el jugador quiere es volver al que se le
                 // cayó.
-                if let Ok(mut l) = session_lib.lock() {
-                    l.record_session(&session_rom, result.played_secs, date::epoch_secs());
+                if let Ok(mut l) = session_lib.lock()
+                    && let Err(error) = l.record_session_once(&session_man.id, &session_rom, result.played_secs, date::epoch_secs()) {
+                        let weak = weak2.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = weak.upgrade() { app.set_status(format!("La partida terminó, pero no se pudieron guardar las estadísticas: {error}").into()); }
+                        });
                 }
 
                 // #601 - la sesión se CIERRA en disco, pase lo que pase.
@@ -2515,6 +2802,7 @@ fn main() {
                     // acá porque es el único momento en que se tienen las dos
                     // mitades: el manifest de lo que corrió y el resultado.
                     *session_pending_launch.lock().unwrap() = Some(PendingLaunch {
+                        reservations: Vec::new(),
                         rom:  std::path::PathBuf::from(&session_man.rom),
                         crc32: session_crc.clone(),
                         pack: None,
@@ -2738,6 +3026,7 @@ fn main() {
     app.on_scan_cancel({
         let cancel = Arc::clone(&scan_cancel);
         move || {
+            PREPARE_CANCEL.store(true, Ordering::Release);
             SCAN_PENDING.store(false, Ordering::Relaxed);
             cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         }
@@ -3009,9 +3298,34 @@ fn main() {
         },
     );
 
+    // Watchers only enqueue hints; reconciliation and all I/O run on workers.
+    let inventory_timer = slint::Timer::default();
+    inventory_timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(250),
+        {
+            let weak = app.as_weak();
+            let mut last_fallback = std::time::Instant::now();
+            move || {
+                if SCAN_RUNNING.load(Ordering::Relaxed) {
+                    return;
+                }
+                if inventory::pending()
+                    || last_fallback.elapsed() >= std::time::Duration::from_secs(60)
+                {
+                    last_fallback = std::time::Instant::now();
+                    if let Some(app) = weak.upgrade() {
+                        app.invoke_rescan();
+                    }
+                }
+            }
+        },
+    );
+
     // Winit applies the initial content size while showing the native window.
     // Give Windows one event-loop interval to deliver the initial resize before
     // maximizing. A zero-duration callback still races that resize on Windows.
+    app.window().set_maximized(true);
     app.show().expect("no se pudo mostrar la ventana");
     let startup_window = app.as_weak();
     slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
@@ -3030,6 +3344,19 @@ fn main() {
 
     slint::run_event_loop().expect("Slint event loop failed");
     app.hide().expect("no se pudo cerrar la ventana");
+    if !SCAN_RUNNING.load(Ordering::Acquire)
+        && !PREPARING.load(Ordering::Acquire)
+        && install_state
+            .lock()
+            .is_ok_and(|state| state.phase != install::Phase::Working)
+        && let Err(error) = shutdown_store.checkpoint_and_backup()
+    {
+        log_warning!(
+            "catalog",
+            "No se pudo completar la copia de cierre: {}",
+            error
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3229,6 +3556,10 @@ fn refresh_ui(
     let g = all_items.lock().unwrap();
     let f = filter.lock().unwrap();
     let o = *order.lock().unwrap();
+    let selected_id = app
+        .get_games()
+        .row_data(app.get_current_game().max(0) as usize)
+        .map(|g| g.id);
     let visible_indices = library_view::visible_indices(&g, &f, o);
     let n = visible_indices.len();
     app.set_platforms(ModelRc::new(VecModel::from(
@@ -3281,6 +3612,11 @@ fn refresh_ui(
     // La selección se recorta al nuevo largo. Sin esto, filtrar con el
     // cursor abajo lo deja apuntando fuera de la lista: la tarjeta con foco
     // desaparece y las flechas dejan de responder hasta tocar el mouse.
+    if let Some(id) = selected_id
+        && let Some(index) = visible_indices.iter().position(|&i| g[i].id == id.as_str())
+    {
+        app.set_current_game(index as i32);
+    }
     if app.get_current_game() >= n as i32 {
         app.set_current_game(if n == 0 { 0 } else { n as i32 - 1 });
     }
@@ -3318,8 +3654,12 @@ fn translate_origin(o: settings::Origin) -> String {
 // Library scan
 // ---------------------------------------------------------------------------
 
+static PREPARING: AtomicBool = AtomicBool::new(false);
+static INSTALL_CANCEL: AtomicBool = AtomicBool::new(false);
+static PREPARE_CANCEL: AtomicBool = AtomicBool::new(false);
 static SCAN_RUNNING: AtomicBool = AtomicBool::new(false);
 static SCAN_PENDING: AtomicBool = AtomicBool::new(false);
+static CATALOG_WRITABLE: AtomicBool = AtomicBool::new(false);
 
 fn scan_progress(weak: slint::Weak<AppWindow>, stage: String, done: usize, total: usize) {
     let _ = slint::invoke_from_event_loop(move || {
@@ -3341,13 +3681,16 @@ fn do_scan(
     weak: slint::Weak<AppWindow>,
     cfg: Arc<Mutex<config::Config>>,
     lib: Arc<Mutex<library::Library>>,
-    dat: Option<Arc<nointro::DatFile>>,
+    dat: Arc<Mutex<Option<Arc<nointro::DatFile>>>>,
     cancel: library::CancelToken,
     all_items: Arc<Mutex<Vec<library::Game>>>,
     filter: Arc<Mutex<library_view::Filter>>,
     order: Arc<Mutex<library_view::Order>>,
-    core_build: Arc<Mutex<Option<String>>>,
+    _core_build: Arc<Mutex<Option<String>>>,
 ) {
+    if !CATALOG_WRITABLE.load(Ordering::Acquire) {
+        return;
+    }
     if SCAN_RUNNING.swap(true, Ordering::Relaxed) {
         SCAN_PENDING.store(true, Ordering::Relaxed);
         return;
@@ -3370,145 +3713,119 @@ fn do_scan(
 
     std::thread::spawn(move || {
         let scan_started = std::time::Instant::now();
-        // #588 — todas las carpetas que el jugador configuro, no una.
-        let folders = config::rom_folders(&cfg.lock().unwrap());
-        // La caché vigente es lo que hace INCREMENTAL al escaneo: se copia una
-        // vez, antes de empezar, en vez de sostener el lock del `Mutex` durante
-        // todo el recorrido — la UI también lo necesita para dibujar la lista.
-        let known_games = lib
-            .lock()
-            .map(|l| l.known_games().clone())
-            .unwrap_or_default();
-
-        let mut games: Vec<library::Game> = Vec::new();
-        let mut cancelled = false;
-        // El progreso es POR CARPETA y se acumula: cada `scan_incremental`
-        // cuenta desde cero lo suyo, así que la barra sumaría mal si se
-        // reportara crudo. Se lleva la base afuera del bucle.
-        let mut completed_base = 0usize;
-        let mut total_base = 0usize;
-        for dir in &folders {
-            let weak_p = weak.clone();
-            let already_processed = std::sync::atomic::AtomicUsize::new(0);
-            let out = library::scan_incremental(dir, &known_games, &cancel, &|h, t| {
-                // Se avisa a la UI sólo cuando el número CAMBIA de verdad:
-                // rayon llama a esto una vez por archivo desde varios hilos, y
-                // encolar un cierre por cada uno satura el event loop de Slint
-                // con trabajo que ya no sirve cuando llega.
-                let percentage = h.saturating_mul(100) / t.max(1);
-                let previous_count =
-                    already_processed.swap(percentage, std::sync::atomic::Ordering::Relaxed);
-                if percentage == previous_count && h != t {
-                    return;
-                }
-                let (done, total) = (completed_base + h, total_base + t);
-                let weak_p = weak_p.clone();
-                slint::invoke_from_event_loop(move || {
-                    if let Some(app) = weak_p.upgrade() {
-                        app.set_scan_done(done as i32);
-                        app.set_scan_total(total as i32);
-                    }
-                })
-                .ok();
-            });
-            completed_base += out.games.len();
-            total_base += out.games.len();
-            cancelled |= out.cancelled;
-            games.extend(out.games);
-            if cancelled {
-                break;
-            }
-        }
-
-        games.sort_by_key(|a| a.name.to_lowercase());
-        games.dedup_by(|a, b| a.path == b.path);
-        if let Some(d) = dat.as_deref() {
-            library::enrich_with_dat(&mut games, d);
-        }
-        // #634 — y los packs INSTALADOS, antes de graduar: el grado se le saca
-        // al pack que el juego va a usar, y hasta acá los instalados no llegaban
-        // nunca a un juego. Va después del DAT y antes del veredicto porque el
-        // orden importa: asociar deja `pack_path` puesto, y `enrich_pack_status`
-        // gradúa lo que encuentre ahí.
-        // #678 — y la CARPETA DE PACKS del jugador, detrás de los instalados:
-        // el orden de las carpetas es la precedencia, y instalar es el acto
-        // explícito que no puede quedar pisado por un .ay que apareció.
-        let pack_folders: Vec<std::path::PathBuf> = {
-            let c = cfg.lock().unwrap();
-            std::iter::once(c.packs_install_dir.clone())
-                .chain(c.pack_dirs.iter().cloned())
-                .collect()
+        let (known_games, store) = {
+            let library = lib.lock().unwrap();
+            (library.known_games().clone(), library.store())
         };
-        scan_progress(weak.clone(), tr!("Buscando packs…"), 0, 0);
-        library::attach_installed_packs(&mut games, &library::index_packs(&pack_folders));
-        lib.lock().unwrap().restore_pack_selection(&mut games);
-        let core_id = core_build.lock().unwrap().clone();
-        let last_percentage = std::sync::atomic::AtomicUsize::new(usize::MAX);
-        library::enrich_pack_status_progress(&mut games, core_id.as_deref(), &|done, total| {
-            let percentage = done.saturating_mul(100) / total.max(1);
-            if last_percentage.swap(percentage, Ordering::Relaxed) != percentage {
-                scan_progress(
-                    weak.clone(),
-                    tr!("Comprobando compatibilidad…"),
-                    done,
-                    total,
-                );
+        let configuration = cfg.lock().unwrap().clone();
+        let mut last_progress = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let dat = dat.lock().unwrap().clone();
+        let result = catalog_scan::scan(
+            store,
+            &configuration,
+            &known_games,
+            dat.as_deref(),
+            &cancel,
+            &mut |done, total| {
+                if last_progress.elapsed() >= std::time::Duration::from_millis(100) || done == total
+                {
+                    scan_progress(weak.clone(), tr!("Identificando juegos…"), done, total);
+                    last_progress = std::time::Instant::now();
+                }
+            },
+        );
+        let (games, cancelled, unavailable, mut scan_error, artwork_changes, changed) = match result
+        {
+            Ok(mut out) => {
+                let changed = !out.games.is_empty()
+                    || !out.removed.is_empty()
+                    || !out.artwork_changes.is_empty();
+                let error = {
+                    let mut library = lib.lock().unwrap();
+                    for game in &mut out.games {
+                        if let (Some(before), Some(latest)) = (
+                            known_games.get(&game.path),
+                            library.known_games().get(&game.path),
+                        ) {
+                            library::keep_newer_pack_choice(game, before, latest);
+                        }
+                    }
+                    library
+                        .apply_scan(&out.games, if out.cancelled { &[] } else { &out.removed })
+                        .err()
+                };
+                (
+                    out.games,
+                    out.cancelled,
+                    out.unavailable,
+                    error,
+                    out.artwork_changes,
+                    changed,
+                )
             }
-        });
-        scan_progress(weak.clone(), tr!("Buscando carátulas…"), 0, 0);
-        let covers_dir = cfg.lock().unwrap().covers_dir.clone();
-        library::find_covers(&mut games, &covers_dir);
-        cancelled |= cancel.load(Ordering::Relaxed);
-        if let Ok(mut l) = lib.lock() {
-            // Lo que se alcanzó a mirar se guarda IGUAL cuando se canceló: son
-            // datos válidos y tirarlos obligaría a re-hashearlos la próxima vez.
-            l.upsert_games(&games);
-            // Pero `prune_missing` NO corre en un escaneo cortado: borraría las
-            // entradas de las carpetas que nunca se llegaron a recorrer, que es
-            // exactamente la caché inconsistente que #591 vino a evitar.
-            if !cancelled {
-                l.prune_missing();
+            Err(error) => (
+                Vec::new(),
+                cancel.load(Ordering::Relaxed),
+                Vec::new(),
+                Some(error),
+                Vec::new(),
+                false,
+            ),
+        };
+        if scan_error.is_some() {
+            inventory::retry();
+        }
+        if scan_error.is_none() && !unavailable.is_empty() {
+            for detail in &unavailable {
+                log_warning!("catalog", "Carpeta no disponible: {}", detail);
             }
+            scan_error = Some(tr!(
+                "Biblioteca lista. Revisá en Ajustes las carpetas que no están disponibles."
+            ));
         }
         // La lista que se muestra sale de la CACHÉ y no de `games`: en un
         // escaneo cancelado `games` es un pedazo, y reemplazar la biblioteca
         // entera por ese pedazo la haría encogerse a la vista del jugador.
-        let displayed_games = lib.lock().map(|l| l.get_all()).unwrap_or(games);
+        let displayed_games = if changed {
+            lib.lock().map(|l| l.get_all()).unwrap_or(games)
+        } else {
+            Vec::new()
+        };
         // #593: los ocultos no se cuentan. El número del estado tiene que decir
         // lo mismo que muestra la pantalla, o parece que se perdieron juegos.
-        let n = displayed_games.iter().filter(|g| !g.hidden).count();
-        *all_items.lock().unwrap() = displayed_games;
+        if changed {
+            *all_items.lock().unwrap() = displayed_games;
+        }
+        let n = all_items
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|g| !g.hidden)
+            .count();
         log_info!(
             "play",
-            "escaneo completado en {} ms",
-            scan_started.elapsed().as_millis()
+            "escaneo completado en {} ms; contadores acumulados: {}",
+            scan_started.elapsed().as_millis(),
+            cache_metrics::snapshot()
         );
         slint::invoke_from_event_loop(move || {
             SCAN_RUNNING.store(false, Ordering::Relaxed);
+            artwork::invalidate(&artwork_changes);
             if let Some(app) = weak.upgrade() {
                 // Se re-proyecta CONSERVANDO el filtro: reiniciarlo al terminar
                 // un escaneo le borraría al jugador la búsqueda que estaba
                 // escribiendo mientras la biblioteca se llenaba.
-                refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                if changed {
+                    refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                }
                 app.set_scanning(false);
-                if app.get_details_open() {
-                    let path = app.get_details_game().path;
-                    let entry = {
-                        let games = all_items.lock().unwrap();
-                        games
-                            .iter()
-                            .position(|g| g.path == path.as_str())
-                            .and_then(|index| {
-                                build_game_model_from(&games, &[index], &cfg.lock().unwrap())
-                                    .row_data(0)
-                            })
-                    };
-                    if let Some(entry) = entry {
-                        app.invoke_open_details(entry);
-                    }
+                if changed && app.get_details_open() {
+                    refresh_open_details(&app, &all_items, &cfg);
                 }
                 app.set_status(
-                    if cancelled {
+                    if let Some(error) = scan_error {
+                        error
+                    } else if cancelled {
                         tr!("Escaneo cancelado — {} juegos en la biblioteca", n)
                     } else if n == 1 {
                         tr!("{} juego encontrado", n)
@@ -3529,6 +3846,77 @@ fn do_scan(
 // ---------------------------------------------------------------------------
 // Model helpers
 // ---------------------------------------------------------------------------
+
+fn render_details_pack_list(app: &AppWindow, games: &[library::Game]) {
+    let entry = app.get_details_game();
+    let paths = games
+        .iter()
+        .find(|g| g.path == entry.path.as_str())
+        .map(|g| g.available_packs.as_slice())
+        .unwrap_or_default();
+    let rows: Vec<_> = paths
+        .iter()
+        .map(|path| InstalledPackEntry {
+            path: path.as_str().into(),
+            name: std::path::Path::new(path)
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .as_ref()
+                .into(),
+        })
+        .collect();
+    app.set_details_pack_count(rows.len() as i32);
+    app.set_details_selected_pack_present(paths.iter().any(|p| p == entry.pack_path.as_str()));
+    app.set_details_packs(ModelRc::new(VecModel::from(rows)));
+}
+
+/// Reconcile the visible pack controls without reopening or auditing any pack.
+fn refresh_open_details(
+    app: &AppWindow,
+    games: &Arc<Mutex<Vec<library::Game>>>,
+    cfg: &Arc<Mutex<config::Config>>,
+) {
+    if !app.get_details_open() {
+        return;
+    }
+    let path = app.get_details_game().path;
+    let games = games.lock().unwrap();
+    let Some(index) = games.iter().position(|g| g.path == path.as_str()) else {
+        return;
+    };
+    let config = cfg.lock().unwrap();
+    let Some(entry) = build_game_model_from(&games, &[index], &config).row_data(0) else {
+        return;
+    };
+    app.set_details_game(entry);
+    render_details_pack_list(app, &games);
+    let game = &games[index];
+    let core = cores::cached_state(&config, &game.platform);
+    let axes = game_details::axes(
+        &game.compat_codes,
+        game.has_pack,
+        game.pack_status,
+        &game.compat_reason,
+        &core,
+        &game.platform,
+    );
+    app.set_details_pack_status(axes.pack.state.as_int());
+    app.set_details_pack_reason(axes.pack_reason().into());
+    app.set_details_pack_usable(axes.pack_usable());
+    app.set_details_pack_warning(axes.short_pack_reason().into());
+    app.set_details_pack_usage_status(
+        game_details::PackState::of(game.has_pack, axes.pack_usable(), app.get_details_hd())
+            .as_int(),
+    );
+    if !app.get_details_selected_pack_present() {
+        app.invoke_details_cancel();
+        app.set_pack_name("".into());
+        app.set_pack_author("".into());
+        app.set_pack_audit("".into());
+        app.set_pack_audit_ok(false);
+    }
+}
 
 /// #678 — el espejo del diálogo de packs, entero en cada cambio: fila, fase,
 /// lista y resultado. Pintar de a pedazos es como una fase vieja queda en
@@ -3598,6 +3986,7 @@ fn selected_install_source(inst: &Mutex<install::State>) -> Option<std::path::Pa
 
 /// #311: lo que espera para lanzarse mientras la pantalla previa esta abierta.
 struct PendingLaunch {
+    reservations: Vec<Arc<std::fs::File>>,
     rom: std::path::PathBuf,
     /// #596: el CRC32 de la ROM, capturado al elegirla. Va al manifest y es lo
     /// que lo hace verificable: la ruta puede apuntar a otro archivo mañana.
@@ -3641,6 +4030,26 @@ fn run_pack_cli(cfg: &config::Config) -> Option<i32> {
     let flag2 = |a: &str, b: &str| flag(a).or_else(|| flag(b));
     let val = |i: usize| args.get(i + 1).cloned();
     let dir = &cfg.packs_install_dir;
+    if ["--install", "--rollback", "--uninstall"]
+        .iter()
+        .any(|name| flag(name).is_some())
+    {
+        match catalog::Store::open(&cfg.catalog_path()) {
+            Ok(store) => pack_cache::init(store),
+            Err(error) => {
+                eprintln!("{error}");
+                return Some(1);
+            }
+        }
+        if let Some(repo) = pack_cache::global()
+            && let Err(error) = repo
+                .require_writable()
+                .and_then(|_| repo.recover_promotions())
+        {
+            eprintln!("{error}");
+            return Some(1);
+        }
+    }
 
     if let Some(i) = flag("--install") {
         let Some(path) = val(i).map(std::path::PathBuf::from) else {
@@ -3980,50 +4389,74 @@ fn build_config_model(
 /// La lista se recalcula en cada tecla de la búsqueda, así que armarla desde los
 /// índices mantiene barata esa recalculación. Las carátulas se piden a la caché:
 /// las que faltan se decodifican en su worker sin bloquear el event loop.
+struct LazyGameModel {
+    games: Vec<library::Game>,
+    cfg: config::Config,
+    notify: slint::ModelNotify,
+}
+impl LazyGameModel {
+    fn cover_changed(&self, path: &str) {
+        for (index, game) in self.games.iter().enumerate() {
+            if game.artwork() == path {
+                self.notify.row_changed(index);
+            }
+        }
+    }
+}
+impl Model for LazyGameModel {
+    type Data = GameEntry;
+    fn row_count(&self) -> usize {
+        self.games.len()
+    }
+    fn row_data(&self, index: usize) -> Option<GameEntry> {
+        self.games.get(index).map(|g| game_entry(g, &self.cfg))
+    }
+    fn model_tracker(&self) -> &dyn slint::ModelTracker {
+        &self.notify
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+fn game_entry(g: &library::Game, cfg: &config::Config) -> GameEntry {
+    let artwork = g.artwork();
+    GameEntry {
+        id: g.id.as_str().into(),
+        name: g.title().into(),
+        path: g.path.as_str().into(),
+        pack_path: g.pack_path.as_str().into(),
+        platform: g.platform.as_str().into(),
+        crc32: g.crc32.as_str().into(),
+        region: g.region.as_str().into(),
+        has_pack: g.has_pack,
+        pack_status: g.pack_status.as_int(),
+        cover: if artwork.is_empty() {
+            slint::Image::default()
+        } else {
+            artwork::load(std::path::Path::new(&artwork))
+        },
+        cover_path: artwork.into(),
+        core_state: cores::cached_state(cfg, &g.platform).as_int(),
+        favorite: g.favorite,
+        hidden: g.hidden,
+        edited: g.has_edits(),
+        compat_reason: g.compat_reason.as_str().into(),
+    }
+}
 fn build_game_model_from(
     games: &[library::Game],
     visible_indices: &[usize],
     cfg: &config::Config,
 ) -> ModelRc<GameEntry> {
-    // #642 — el eje del core, UNA vez por consola. El sondeo ya está hecho (es
-    // del core, no del juego), pero traducirlo a una plataforma recorre las
-    // extensiones que el core declara, y hacerlo por tarjeta sería repetir la
-    // misma cuenta una vez por juego en cada tecla de la búsqueda.
-    let mut core_axis: std::collections::BTreeMap<String, i32> = Default::default();
-    let entries: Vec<GameEntry> = visible_indices
-        .iter()
-        .filter_map(|i| games.get(*i))
-        .map(|g| {
-            let artwork = g.artwork();
-            let cover = if artwork.is_empty() {
-                slint::Image::default()
-            } else {
-                artwork::load(std::path::Path::new(&artwork))
-            };
-            GameEntry {
-                name: g.title().as_str().into(),
-                path: g.path.as_str().into(),
-                pack_path: g.pack_path.as_str().into(),
-                platform: g.platform.as_str().into(),
-                crc32: g.crc32.as_str().into(),
-                region: g.region.as_str().into(),
-                has_pack: g.has_pack,
-                pack_status: g.pack_status.as_int(),
-                cover,
-                cover_path: artwork.into(),
-                core_state: *core_axis
-                    .entry(g.platform.clone())
-                    .or_insert_with(|| cores::state(cfg, &g.platform).as_int()),
-                favorite: g.favorite,
-                hidden: g.hidden,
-                edited: g.has_edits(),
-                compat_reason: g.compat_reason.as_str().into(),
-            }
-        })
-        .collect();
-    ModelRc::new(VecModel::from(entries))
+    ModelRc::new(LazyGameModel {
+        games: visible_indices
+            .iter()
+            .filter_map(|&i| games.get(i).cloned())
+            .collect(),
+        cfg: cfg.clone(),
+        notify: slint::ModelNotify::default(),
+    })
 }
-
 /// Escribe todo pánico a un archivo, además de al stderr de siempre.
 ///
 /// El archivo lleva la hora en el nombre y no se pisa: dos cierres seguidos son
@@ -4131,7 +4564,7 @@ fn apply_effect(app: &AppWindow, ef: pad_router::Effect) {
         PlayFromDetails => app.invoke_details_play(),
         InstallFromDetails => app.invoke_details_install_pack(),
         NextPack => app.invoke_details_next_pack(),
-        UninstallPack => app.invoke_details_uninstall_pack(),
+        UninstallPack => app.invoke_details_uninstall_pack(app.get_details_game().pack_path),
         ConfirmAccept => {
             app.invoke_confirm_accept();
             app.set_confirm_open(false);

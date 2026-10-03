@@ -30,7 +30,7 @@ if ($lock.status -ne 'available' -or -not $lock.asset_url -or -not $lock.asset_n
 $tagCommit = git -C $source rev-parse ($lock.release_tag + '^{commit}')
 if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $lock.source_commit) { throw 'Runtime tag does not match the pinned source commit' }
 if ($lock.platform -ne 'windows-x86_64') { throw 'Only Windows x64 integration is configured' }
-$archive = Join-Path $deps 'runtime.zip'
+$archive = Join-Path $deps "runtime-$($lock.release_tag).zip"
 if (-not (Test-Path $archive)) {
     gh release download $lock.release_tag --repo Ayther-Dev/AYTHER-Runtime --pattern $lock.asset_name --output $archive
     if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed; authenticate GitHub CLI for repository access' }

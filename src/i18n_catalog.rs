@@ -9,6 +9,29 @@
 pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
     match lang {
         "en" => match msgid {
+            "Jugar original" => Some("Play original"),
+            "Actualizá el motor de juego" => Some("Update the game engine"),
+            "Este Runtime no confirmó los archivos preparados. Instalá la compilación de Runtime que acompaña a esta versión de Play CE y volvé a intentar." => {
+                Some(
+                    "This Runtime did not confirm the prepared files. Install the Runtime build supplied with this version of Play CE and try again.",
+                )
+            }
+            "No se pudo reservar el archivo" => Some("Could not reserve the file"),
+            "La ROM o el pack cambió o está en uso. Esperá a que termine la copia o modificación y volvé a intentar." => {
+                Some(
+                    "The ROM or pack changed or is in use. Wait for the copy or modification to finish and try again.",
+                )
+            }
+            "Cargando biblioteca…" => Some("Loading library…"),
+            "Biblioteca cargada" => Some("Library loaded"),
+            "Biblioteca lista. Revisá en Ajustes las carpetas que no están disponibles." => {
+                Some("Library ready. Check unavailable folders in Settings.")
+            }
+            "Copiando pack…" => Some("Copying pack…"),
+            "Cancelando…" => Some("Cancelling…"),
+            "Preparando juego…" => Some("Preparing game…"),
+            "Comprobando pack…" => Some("Checking pack…"),
+            "Identificando juegos…" => Some("Identifying games…"),
             "Cargando carátulas…" => Some("Loading covers…"),
             "Buscando juegos…" => Some("Finding games…"),
             "Buscando packs…" => Some("Finding packs…"),
@@ -60,6 +83,7 @@ pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
             "Jugar sin pack" => Some("Play without pack"),
             "Cambiar pack" => Some("Switch pack"),
             "Desinstalar pack" => Some("Uninstall pack"),
+            "Seleccionado" => Some("Selected"),
             "↑ Instalar pack · → Cambiar pack · ↓ Desinstalar pack" => {
                 Some("↑ Install pack · → Switch pack · ↓ Uninstall pack")
             }

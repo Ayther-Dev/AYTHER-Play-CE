@@ -97,6 +97,9 @@ pub struct Config {
 
     /// Path to the JSON library cache file.
     pub lib_path: PathBuf,
+    /// SQLite catalog; legacy JSON remains available for migration/recovery.
+    #[serde(default)]
+    pub catalog_path: Option<PathBuf>,
 
     /// Dónde viven los packs instalados. En CE llegan desde un archivo del
     /// disco —la pantalla de Ajustes o `--install`—: no hay descarga que los
@@ -164,6 +167,14 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn catalog_path(&self) -> PathBuf {
+        self.catalog_path.clone().unwrap_or_else(|| {
+            dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("Ayther")
+                .join("catalog.sqlite3")
+        })
+    }
     /// Load from the platform config directory, or build sensible defaults.
     pub fn load() -> Self {
         let config_path = Self::config_file();
@@ -354,6 +365,7 @@ impl Config {
             terms_date: None,
             cores: Default::default(),
             lib_path: data_dir.join("library.json"),
+            catalog_path: None,
             packs_install_dir: data_dir.join("packs"),
             pack_dirs: Vec::new(),
             pack_trust_registries: Default::default(),

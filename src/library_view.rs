@@ -142,23 +142,27 @@ pub fn visible_indices(games: &[Game], f: &Filter, order: Order) -> Vec<usize> {
     // hace que marcar un favorito sirva de algo sin tener que además filtrar.
     idx.sort_by(|a, b| {
         let (ga, gb) = (&games[*a], &games[*b]);
-        gb.favorite.cmp(&ga.favorite).then_with(|| match order {
-            Order::Alphabetical => {
-                normalize_search_text(&ga.title()).cmp(&normalize_search_text(&gb.title()))
-            }
-            Order::ReverseAlphabetical => {
-                normalize_search_text(&gb.title()).cmp(&normalize_search_text(&ga.title()))
-            }
-            Order::Platform => ga.platform.cmp(&gb.platform).then_with(|| {
-                normalize_search_text(&ga.title()).cmp(&normalize_search_text(&gb.title()))
-            }),
-            // Más reciente primero; los que nunca se jugaron caen al final por
-            // el 0, y entre ellos se ordenan alfabéticamente en vez de quedar
-            // en el orden en que el sistema de archivos los devolvió.
-            Order::Recent => gb.last_played.cmp(&ga.last_played).then_with(|| {
-                normalize_search_text(&ga.title()).cmp(&normalize_search_text(&gb.title()))
-            }),
-        })
+        gb.favorite
+            .cmp(&ga.favorite)
+            .then_with(|| match order {
+                Order::Alphabetical => {
+                    normalize_search_text(&ga.title()).cmp(&normalize_search_text(&gb.title()))
+                }
+                Order::ReverseAlphabetical => {
+                    normalize_search_text(&gb.title()).cmp(&normalize_search_text(&ga.title()))
+                }
+                Order::Platform => ga.platform.cmp(&gb.platform).then_with(|| {
+                    normalize_search_text(&ga.title()).cmp(&normalize_search_text(&gb.title()))
+                }),
+                // Más reciente primero; los que nunca se jugaron caen al final por
+                // el 0, y entre ellos se ordenan alfabéticamente en vez de quedar
+                // en el orden en que el sistema de archivos los devolvió.
+                Order::Recent => gb.last_played.cmp(&ga.last_played).then_with(|| {
+                    normalize_search_text(&ga.title()).cmp(&normalize_search_text(&gb.title()))
+                }),
+            })
+            .then_with(|| ga.id.cmp(&gb.id))
+            .then_with(|| ga.path.cmp(&gb.path))
     });
     idx
 }
@@ -235,6 +239,9 @@ mod tests {
 
     fn game(name: &str, platform: &str) -> Game {
         Game {
+            id: String::new(),
+            sha256: String::new(),
+            revision: None,
             name: name.into(),
             path: format!("D:/roms/{name}.md"),
             platform: platform.into(),

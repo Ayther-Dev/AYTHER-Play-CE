@@ -29,7 +29,13 @@ export struct SaveRow {
     detail: string,
 }
 
+export struct InstalledPackEntry {
+    path: string,
+    name: string,
+}
+
 export struct GameEntry {
+    id: string,
     name:        string,
     path:        string,
     // La ruta del PACK, resuelta por la biblioteca (.ay actual, .ae legacy).
@@ -1545,6 +1551,77 @@ component ScanBanner inherits Rectangle {
     }
 }
 
+component PackToggleButton inherits Rectangle {
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> pack-name;
+    callback clicked();
+    width: 146px; height: Tokens.control-md;
+    border-radius: Tokens.radius-md;
+    background: area.has-hover && root.enabled ? Tokens.overlay-hi : transparent;
+    opacity: root.enabled ? 1 : 0.5;
+    accessible-role: checkbox;
+    accessible-label: @tr("Activar/Desactivar pack") + " · " + root.pack-name;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    HorizontalLayout {
+        spacing: 10px; padding-left: 8px; padding-right: 8px;
+        Centered {
+            Rectangle {
+                width: 40px; height: 24px; border-radius: 12px;
+                background: root.checked ? Tokens.accent : Tokens.border;
+                Rectangle {
+                    x: root.checked ? 19px : 3px; y: 3px;
+                    width: 18px; height: 18px; border-radius: 9px;
+                    background: root.checked ? Tokens.bg-panel : Tokens.text-bright;
+                }
+            }
+        }
+        Text {
+            text: root.checked ? @tr("Activo") : @tr("Apagado");
+            color: Tokens.text-normal;
+            font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
+            vertical-alignment: center;
+        }
+    }
+    area := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+component PackRemoveButton inherits Rectangle {
+    in property <bool> enabled: true;
+    in property <string> pack-name;
+    callback clicked();
+    width: Tokens.control-md; height: Tokens.control-md;
+    border-radius: Tokens.radius-md;
+    background: area.has-hover && root.enabled ? Tokens.overlay-hi : transparent;
+    accessible-role: button;
+    accessible-label: @tr("Desinstalar pack") + " · " + root.pack-name;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    property <int> turn;
+    Icon {
+        text: Icons.trash; size: 24px;
+        color: area.has-hover && root.enabled ? Tokens.danger : Tokens.text-dim;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+    area := TouchArea {
+        enabled: root.enabled;
+        clicked => { Tip.reason = ""; root.clicked(); }
+        changed has-hover => {
+            if self.has-hover {
+                Tip.series += 1; root.turn = Tip.series; Tip.owner = root.turn;
+                Tip.reason = @tr("Desinstalar pack") + " · " + root.pack-name;
+                Tip.anchor-x = root.absolute-position.x;
+                Tip.anchor-y = root.absolute-position.y;
+                Tip.anchor-height = root.height;
+            } else if Tip.owner == root.turn { Tip.reason = ""; }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     title:            "Ayther Play";
     // Icono de VENTANA (barra de tareas mientras corre, Alt-Tab, encabezado del
@@ -1679,7 +1756,12 @@ export component AppWindow inherits Window {
     callback details-pack-act();
     callback details-install-pack();
     callback details-next-pack();
-    callback details-uninstall-pack();
+    callback details-select-pack(string);
+    callback details-toggle-pack(string);
+    in property <string> details-activate-pack-path;
+    callback details-uninstall-pack(string);
+    in property <[InstalledPackEntry]> details-packs: [];
+    in property <bool> details-selected-pack-present: false;
     in property <int> details-pack-count: 0;
     in property <bool> details-pack-busy: false;
     /// Este juego no tiene pack puesto. En AYTHER Play CE eso es el final de la
@@ -1714,9 +1796,13 @@ export component AppWindow inherits Window {
     /// andan perfecto.
     in property <bool>           pack-audit-ok: false;
     callback details-play();
+    callback details-play-original();
     callback details-toggle-hd();
     callback details-configure();
     callback open-details(GameEntry);
+    callback details-cancel();
+    in property <bool> pack-checking: false;
+    in property <float> pack-progress: 0;
 
     // ---- Settings --------------------------------------------------------
     in-out property <int>    setting-row: 0;
@@ -1768,6 +1854,10 @@ export component AppWindow inherits Window {
     in     property <bool>     install-open: false;
     /// 0 explorando · 1 trabajando (auditando e instalando) · 2 resultado.
     in     property <int>      install-phase: 0;
+    in property <string> install-stage: "";
+    in property <int> install-done: 0;
+    in property <int> install-total: 0;
+    in property <bool> install-cancelable: true;
     in     property <bool>     install-folder-mode: false;
     in property <bool> install-cover-mode: false;
     in property <string> install-cover-error;
@@ -2034,7 +2124,7 @@ export component AppWindow inherits Window {
     callback go-to-section(int);
     go-to-section(step) => {
         root.active-tab = Math.max(0, Math.min(2, root.active-tab + step));
-        root.details-open = false;
+        root.details-open = false; root.details-cancel();
     }
 
     // qué superficie tiene el foco. DERIVADA, no seteada desde Rust:
@@ -2267,7 +2357,7 @@ export component AppWindow inherits Window {
                         accessible-item-index: i;
                         accessible-item-selected: root.active-tab == i;
                         accessible-action-default => {
-                            root.active-tab = i; root.details-open = false;
+                            root.active-tab = i; root.details-open = false; root.details-cancel();
                         }
                         height: 56px;
                         // La activa se marca con una BARRA abajo y no con un
@@ -2283,7 +2373,7 @@ export component AppWindow inherits Window {
                         // pestaña se marcaba pero el cuerpo seguía mostrando el
                         // juego: la barra decía una cosa y la pantalla otra.
                         tab-touch-area := TouchArea {
-                            clicked => { root.active-tab = i; root.details-open = false; }
+                            clicked => { root.active-tab = i; root.details-open = false; root.details-cancel(); }
                         }
                         HorizontalLayout {
                             padding-left: 20px; padding-right: 20px;
@@ -2913,25 +3003,11 @@ export component AppWindow inherits Window {
                     // propiedad que se está calculando — la ventana muere con
                     // «Recursion detected» al primer movimiento del cursor.
                     changed row-focus => { game-grid-scroll.viewport-y = -self.desired; }
-                    game-grid-scroll := Flickable {
-                        viewport-height: grid-rows.preferred-height;
-                        // SIN un `init` que lo aplique de entrada, y no por
-                        // olvido: leer `deseado` mientras Slint construye el
-                        // subárbol entra en el cálculo del layout que todavía no
-                        // terminó —`tope` mira la altura del contenedor— y la
-                        // ventana muere con «Recursion detected» antes de
-                        // dibujar. No hace falta: la grilla abre en el primer
-                        // juego, que ya está a la vista.
-                        grid-rows := VerticalLayout {
-                            // safe area: 96 h · 54 v (5 % de 1920×1080).
-                            // En un televisor el borde de la imagen puede quedar
-                            // fuera de la pantalla, y lo primero que se corta es
-                            // la primera columna de tarjetas.
-                            padding-left: 96px; padding-right: 96px;
-                            padding-top: 16px; padding-bottom: 54px;
-                            spacing: CardMetrics.gap; alignment: start;
-                            for row in grid-container.rows:
+                    game-grid-scroll := ListView {
+                        for row in grid-container.rows: Rectangle {
+                            height: CardMetrics.height + CardMetrics.gap;
                             HorizontalLayout {
+                                padding-left: 96px; padding-right: 96px;
                                 spacing: CardMetrics.gap; alignment: start;
                                 for col in root.columns: Rectangle {
                                     property <int> idx: row * root.columns + col;
@@ -2940,17 +3016,7 @@ export component AppWindow inherits Window {
                                     if idx < root.games.length: GameCard {
                                         game: root.games[idx];
                                         focused: idx == root.current-game;
-                                        // el clic en el CONTENIDO devuelve
-                                        // el foco al teclado. Sin esto se queda
-                                        // donde estaba —típicamente el campo de
-                                        // búsqueda, que es lo último que se
-                                        // tocó— y a partir de ahí las flechas
-                                        // escriben en la búsqueda en vez de
-                                        // mover la selección, sin que nada lo
-                                        // diga. Los chips NO roban el foco: ahí
-                                        // el jugador puede querer seguir
-                                        // escribiendo.
-                                        clicked   => { root.current-game = idx; fs.focus(); }
+                                        clicked => { root.current-game = idx; fs.focus(); }
                                         activated => { root.open-details(root.games[idx]); }
                                     }
                                 }
@@ -2958,7 +3024,6 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
-
                 if root.list-view: ListView {
                     for game[i] in root.games: GameRow {
                         game: game; selected: i == root.current-game;
@@ -3187,7 +3252,7 @@ export component AppWindow inherits Window {
                 // B / Escape vuelven a la biblioteca. **Nunca cierran Play** (§9).
                 if event.text == Key.Escape || event.text == Key.Backspace
                    || event.text == Key.LeftArrow {
-                    root.details-open = false; return EventResult.accept;
+                    root.details-open = false; root.details-cancel(); return EventResult.accept;
                 }
                 if event.text == "x" || event.text == "X" {
                     root.details-toggle-hd(); return EventResult.accept;
@@ -3202,7 +3267,7 @@ export component AppWindow inherits Window {
                     root.details-next-pack(); return EventResult.accept;
                 }
                 if event.text == Key.DownArrow {
-                    root.details-uninstall-pack(); return EventResult.accept;
+                    root.details-uninstall-pack(root.details-game.pack-path); return EventResult.accept;
                 }
                 return EventResult.reject;
             }
@@ -3329,6 +3394,13 @@ export component AppWindow inherits Window {
                                                 clicked => { root.details-play(); }
                                             }
                                         }
+                                        if root.details-game.has-pack: Centered {
+                                            ActionButton {
+                                                label: @tr("Jugar original");
+                                                enabled: root.details-playable;
+                                                clicked => { root.details-play-original(); }
+                                            }
+                                        }
                                         if root.details-save != "": Centered {
                                             ActionButton {
                                                 label: @tr("Partida nueva");
@@ -3447,45 +3519,31 @@ export component AppWindow inherits Window {
                                         font-size: Tokens.text-body-sm;
                                         font-weight: 600; letter-spacing: 1px;
                                     }
-                                    // PackRow del .pen: el `package` del color
-                                    // del acento, el nombre y su autor, la firma
-                                    // con su `seal-check`, el semáforo y el chip
-                                    // que dice que ESTE es el que está puesto.
-                                    if root.details-game.has-pack: Rectangle {
-                                        height: 72px;
-                                        max-width: 900px;
+                                    // One row owns all information and actions for this pack.
+                                    for installed-pack in root.details-packs: Rectangle {
+                                        min-height: 72px;
+                                        max-width: 1100px;
                                         background: Tokens.bg-panel;
                                         border-radius: Tokens.radius-sm;
                                         HorizontalLayout {
-                                            padding-left: 16px; padding-right: 16px; spacing: 20px;
-                                            Icon {
-                                                text: Icons.package; color: Tokens.accent; size: 28px;
-                                            }
-                                            VerticalLayout {
-                                                alignment: center; spacing: 2px;
+                                            padding: 12px; spacing: 12px;
+                                            Icon { text: Icons.package; color: Tokens.accent; size: 28px; }
+                                            Text {
+                                                text: installed-pack.name;
                                                 horizontal-stretch: 1;
-                                                Text {
-                                                    text: root.pack-name;
-                                                    color: Tokens.text-bright;
-                                                    font-family: Tokens.font-ui;
-                                                    font-size: Tokens.text-body;
-                                                    font-weight: 600; overflow: elide;
-                                                }
-                                                Text {
-                                                    text: root.pack-author;
-                                                    color: Tokens.text-dim;
-                                                    font-family: Tokens.font-ui;
-                                                    font-size: Tokens.text-body-sm;
-                                                }
+                                                color: Tokens.text-bright;
+                                                font-family: Tokens.font-ui; font-size: Tokens.text-body;
+                                                font-weight: 600; overflow: elide;
+                                                vertical-alignment: center;
                                             }
-                                            // El ícono era un `seal-check` —un
-                                            // SELLO— y hablaba de la firma. Acá
-                                            // lo que se comprobó es que el
-                                            // archivo esté entero, que es otra
-                                            // cosa: un sello sobre «no está
-                                            // corrupto» le promete al jugador
-                                            // una procedencia que nadie miró.
-                                            Centered {
+                                            if installed-pack.path == root.details-game.pack-path: Text {
+                                                text: root.pack-author;
+                                                color: Tokens.text-dim;
+                                                font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
+                                                vertical-alignment: center; overflow: elide;
+                                                max-width: 180px;
+                                            }
+                                            if installed-pack.path == root.details-game.pack-path: Centered {
                                                 HorizontalLayout {
                                                     spacing: 6px;
                                                     Icon {
@@ -3496,37 +3554,37 @@ export component AppWindow inherits Window {
                                                     Text {
                                                         text: root.pack-audit;
                                                         color: Tokens.text-dim;
-                                                        font-family: Tokens.font-ui;
-                                                        font-size: Tokens.text-body-sm;
+                                                        font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                                                         vertical-alignment: center;
+                                                    }
+                                                    if root.pack-checking: ProgressIndicator {
+                                                        width: 90px; progress: root.pack-progress;
+                                                    }
+                                                    if root.pack-checking: ActionButton {
+                                                        label: @tr("Cancelar");
+                                                        clicked => { root.details-cancel(); }
                                                     }
                                                 }
                                             }
-                                            Centered {
+                                            if installed-pack.path == root.details-game.pack-path: Centered {
                                                 SemaphoreBadge {
                                                     state: root.details-pack-status;
                                                     reason: root.details-pack-reason;
                                                 }
                                             }
-                                            // el estado, y al lado el
-                                            // VERBO. El chip dice en qué está el
-                                            // pack —activo, apagado, no se puede
-                                            // usar— y el botón dice qué va a
-                                            // pasar si se aprieta. Antes el chip
-                                            // era las dos cosas a la vez, así
-                                            // que el jugador tenía que adivinar
-                                            // si «Activo» era un estado o una
-                                            // orden.
                                             Centered {
-                                                Chip {
-                                                    label: root.details-pack-usage;
-                                                    active: root.details-pack-usage-status == 1;
+                                                PackToggleButton {
+                                                    pack-name: installed-pack.name;
+                                                    checked: installed-pack.path == root.details-game.pack-path && root.details-hd && root.details-pack-usable;
+                                                    enabled: !root.scanning && !root.details-pack-busy && (installed-pack.path != root.details-game.pack-path || (root.details-pack-usable && !root.pack-checking));
+                                                    clicked => { root.details-toggle-pack(installed-pack.path); }
                                                 }
                                             }
-                                            if root.details-pack-action != "": Centered {
-                                                ActionButton {
-                                                    label: root.details-pack-action;
-                                                    clicked => { root.details-pack-act(); }
+                                            Centered {
+                                                PackRemoveButton {
+                                                    pack-name: installed-pack.name;
+                                                    enabled: !root.scanning && !root.details-pack-busy;
+                                                    clicked => { root.details-uninstall-pack(installed-pack.path); }
                                                 }
                                             }
                                         }
@@ -3548,7 +3606,7 @@ export component AppWindow inherits Window {
                                     // Sin pack NO se esconde la sección: que
                                     // exista y diga que no hay es lo que enseña
                                     // que puede haber.
-                                    if !root.details-game.has-pack: HorizontalLayout {
+                                    if root.details-pack-count == 0: HorizontalLayout {
                                         alignment: start; spacing: 16px;
                                         Centered {
                                             Text {
@@ -3570,11 +3628,6 @@ export component AppWindow inherits Window {
                                             label: @tr("Cambiar pack");
                                             enabled: !root.scanning && !root.details-pack-busy;
                                             clicked => { root.details-next-pack(); }
-                                        }
-                                        if root.details-game.has-pack: ActionButton {
-                                            label: @tr("Desinstalar pack");
-                                            enabled: !root.scanning && !root.details-pack-busy;
-                                            clicked => { root.details-uninstall-pack(); }
                                         }
                                     }
                                     Text {
@@ -4316,11 +4369,12 @@ export component AppWindow inherits Window {
 
                 // Auditar un .ay de cientos de MB se SIENTE: sin esta fase el
                 // diálogo se congela después de A y parece colgado.
-                if root.install-phase == 1: Text {
-                    text: @tr("Auditando e instalando… El archivo se comprueba entero antes de tocar nada.");
-                    color: Tokens.text-normal;
-                    font-family: Tokens.font-ui; font-size: Tokens.text-body;
-                    wrap: word-wrap;
+                if root.install-phase == 1: ScanBanner {
+                    stage: root.install-stage;
+                    done: root.install-done;
+                    total: root.install-total;
+                    cancelable: root.install-cancelable;
+                    cancel => { root.install-close(); }
                 }
 
                 if root.install-phase == 2: Text {

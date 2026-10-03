@@ -25,6 +25,26 @@
 
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct AudioDiagnosticContext {
+    #[serde(default)]
+    pub logical_identity: String,
+    #[serde(default)]
+    pub track: String,
+    #[serde(default)]
+    pub cause: String,
+    #[serde(default)]
+    pub runtime_version: String,
+    #[serde(default)]
+    pub engine_version: String,
+    #[serde(default)]
+    pub count: u64,
+    #[serde(default)]
+    pub period_ns: u64,
+    #[serde(default)]
+    pub monotonic_ns: u64,
+}
+
 /// Lo que el runtime dice que le pasa.
 ///
 /// `#[serde(tag = "event")]` es lo que hace que el JSON se despache por su campo
@@ -59,6 +79,8 @@ pub enum RuntimeEvent {
         reason: String,
         #[serde(default)]
         message: String,
+        #[serde(flatten)]
+        audio: AudioDiagnosticContext,
     },
     /// #600: la sesión no puede seguir. Lleva el motivo porque «error» a secas
     /// obliga al jugador a adivinar, y adivinar sobre un juego que no arrancó
@@ -76,6 +98,72 @@ pub enum RuntimeEvent {
     },
     /// El auto-test de #? que prueba que el launcher sobrevive a un abort.
     CrashTest,
+}
+
+/// Presents a typed audio warning in the selected UI language. Missing or
+/// non-audio context returns `None`; callers can keep their ordinary warning path.
+pub fn audio_diagnostic_message(event: &RuntimeEvent, language: &str) -> Option<String> {
+    let RuntimeEvent::Warning { reason, audio, .. } = event else {
+        return None;
+    };
+    let label = match (language, reason.as_str()) {
+        ("en", "audio.unexpected_restart") => "Unexpected audio restart",
+        ("en", "audio.window_end") => "Audio window ended",
+        ("en", "audio.invalid_file") => "Invalid audio file",
+        ("en", "audio.output_failure") => "Audio output failure",
+        (_, "audio.unexpected_restart") => "Reinicio inesperado de audio",
+        (_, "audio.window_end") => "Fin de ventana de audio",
+        (_, "audio.invalid_file") => "Archivo de audio inválido",
+        (_, "audio.output_failure") => "Fallo de salida de audio",
+        _ => return None,
+    };
+    let event_label = if language == "en" {
+        "events"
+    } else {
+        "eventos"
+    };
+    Some(format!(
+        "{label} · {} · {} · Runtime {} / Engine {} · {} {event_label}",
+        audio.track, audio.cause, audio.runtime_version, audio.engine_version, audio.count
+    ))
+}
+
+/// Localizes the RF-18 music conditions while preserving their stable English
+/// machine code. Unknown warnings keep the legacy presentation path.
+pub fn music_warning_message(event: &RuntimeEvent, language: &str) -> Option<String> {
+    let RuntimeEvent::Warning {
+        reason, message, ..
+    } = event
+    else {
+        return None;
+    };
+    let label = match (language, reason.as_str()) {
+        ("en", "analysis_obsolete") => "The analysis revision is obsolete and was ignored",
+        ("en", "game_pause_unobservable") => {
+            "The game pause cannot be observed; music keeps advancing"
+        }
+        ("en", "analysis_limit") => "The music analysis reached a configured limit",
+        ("en", "incompatible_pack") => "The pack is incompatible; original audio remains active",
+        ("en", "restore_failed_rolled_back") => {
+            "Music restore failed and the previous state was recovered"
+        }
+        (_, "analysis_obsolete") => "La revisión de análisis quedó obsoleta y fue ignorada",
+        (_, "game_pause_unobservable") => {
+            "La pausa del juego no puede observarse; la música continúa"
+        }
+        (_, "analysis_limit") => "El análisis musical alcanzó un límite configurado",
+        (_, "incompatible_pack") => "El pack es incompatible; continúa el audio original",
+        (_, "restore_failed_rolled_back") => {
+            "Falló la restauración musical y se recuperó el estado anterior"
+        }
+        _ => return None,
+    };
+    let detail = if message.is_empty() {
+        String::new()
+    } else {
+        format!(" · {message}")
+    };
+    Some(format!("{label} · {reason}{detail}"))
 }
 
 /// Una línea de stdout del runtime, ya clasificada.
@@ -100,9 +188,20 @@ pub fn classify(line: &str) -> ParsedLine {
     let Some(json) = line.strip_prefix("AYTHER_STATUS ") else {
         return ParsedLine::Log(line.to_string());
     };
-    match serde_json::from_str::<RuntimeEvent>(json.trim()) {
+    let json = json.trim();
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return ParsedLine::Malformed(json.to_string());
+    };
+    if let Some(version) = value
+        .get("protocol_version")
+        .and_then(serde_json::Value::as_u64)
+        && version > 1
+    {
+        return ParsedLine::Malformed(format!("unsupported protocol_version {version}"));
+    }
+    match serde_json::from_value::<RuntimeEvent>(value) {
         Ok(e) => ParsedLine::Event(e),
-        Err(_) => ParsedLine::Malformed(json.trim().to_string()),
+        Err(_) => ParsedLine::Malformed(json.to_string()),
     }
 }
 
@@ -118,7 +217,8 @@ mod tests {
             ),
             ParsedLine::Event(RuntimeEvent::Warning {
                 reason: "pack.open_failed".into(),
-                message: "cannot open pack".into()
+                message: "cannot open pack".into(),
+                audio: AudioDiagnosticContext::default(),
             })
         );
     }
@@ -157,6 +257,7 @@ mod tests {
             RuntimeEvent::Warning {
                 reason: "el pack no trae musica".into(),
                 message: String::new(),
+                audio: AudioDiagnosticContext::default(),
             }
         );
         assert_eq!(
@@ -273,6 +374,58 @@ mod tests {
             RuntimeEvent::Exit {
                 savestate: String::new()
             }
+        );
+    }
+
+    #[test]
+    fn audio_diagnostics_are_localized_without_guessing_missing_context() {
+        let event = ev(
+            r#"AYTHER_STATUS {"protocol_version":1,"event":"warning","reason":"audio.invalid_file","logical_identity":"music:stage-1","track":"Wilderness","cause":"decoder_rejected_header","runtime_version":"0.1.0-beta.6","engine_version":"0.1.0","count":2,"period_ns":900000000,"monotonic_ns":4200000000}"#,
+        );
+        assert_eq!(
+            audio_diagnostic_message(&event, "es").as_deref(),
+            Some(
+                "Archivo de audio inválido · Wilderness · decoder_rejected_header · Runtime 0.1.0-beta.6 / Engine 0.1.0 · 2 eventos"
+            )
+        );
+        assert_eq!(
+            audio_diagnostic_message(&event, "en").as_deref(),
+            Some(
+                "Invalid audio file · Wilderness · decoder_rejected_header · Runtime 0.1.0-beta.6 / Engine 0.1.0 · 2 events"
+            )
+        );
+    }
+
+    #[test]
+    fn ordinary_warning_is_not_presented_as_an_audio_diagnostic() {
+        let event = ev(r#"AYTHER_STATUS {"event":"warning","reason":"pack.open_failed"}"#);
+        assert_eq!(audio_diagnostic_message(&event, "es"), None);
+    }
+
+    #[test]
+    fn rf18_music_warnings_are_bilingual_and_keep_the_technical_code() {
+        for reason in [
+            "analysis_obsolete",
+            "game_pause_unobservable",
+            "analysis_limit",
+            "incompatible_pack",
+            "restore_failed_rolled_back",
+        ] {
+            let event = ev(&format!(
+                r#"AYTHER_STATUS {{"protocol_version":1,"event":"warning","reason":"{reason}","message":"detail"}}"#
+            ));
+            let es = music_warning_message(&event, "es").expect("mensaje es");
+            let en = music_warning_message(&event, "en").expect("message en");
+            assert!(es.contains(reason) && en.contains(reason));
+            assert_ne!(es, en);
+        }
+    }
+
+    #[test]
+    fn future_protocol_is_reported_instead_of_silently_accepted() {
+        assert_eq!(
+            classify(r#"AYTHER_STATUS {"protocol_version":2,"event":"exit"}"#),
+            ParsedLine::Malformed("unsupported protocol_version 2".into())
         );
     }
 }

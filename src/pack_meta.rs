@@ -54,6 +54,19 @@ pub enum PackStatus {
 /// Returns `(PackStatus, Option<PackInfo>)`.
 /// Never panics — all errors are silently converted to `Corrupt`.
 pub fn read(pack_path: &Path) -> (PackStatus, Option<PackInfo>) {
+    if let Some(repo) = crate::pack_cache::global() {
+        return match repo.peek(pack_path).and_then(|s| s.catalog.clone()) {
+            Some(m) => (
+                PackStatus::Ok,
+                Some(PackInfo {
+                    game_id: m.meta.game_id,
+                    name: m.meta.name,
+                    version: m.meta.version,
+                }),
+            ),
+            None => (PackStatus::None, None),
+        };
+    }
     if !pack_path.exists() {
         return (PackStatus::None, None);
     }
@@ -89,6 +102,12 @@ fn read_inner(pack_path: &Path) -> Result<PackInfo, Box<dyn std::error::Error>> 
 /// devuelve capacidades vacias, y ahi la pantalla ofrece lo minimo en vez de
 /// inventar.
 pub fn capabilities(pack_path: &Path) -> crate::launch_config::PackCapabilities {
+    if let Some(repo) = crate::pack_cache::global() {
+        return repo
+            .peek(pack_path)
+            .and_then(|s| s.catalog.as_ref().map(capabilities_from_catalog))
+            .unwrap_or_default();
+    }
     use crate::launch_config::PackCapabilities;
     let mut caps = PackCapabilities::default();
     // «original» SIEMPRE esta y va primero: es implicito en el pack (#293) y
@@ -200,10 +219,25 @@ pub struct CreditLine {
 /// pantalla dice «este pack no declara créditos», que es la verdad. Nunca se
 /// inventa una atribución (mismo criterio que `Credits::parse`).
 pub fn credits(pack_path: &Path) -> Vec<CreditLine> {
+    if let Some(repo) = crate::pack_cache::global() {
+        return repo
+            .peek(pack_path)
+            .and_then(|s| {
+                s.metadata
+                    .texts
+                    .get("credits.toml")
+                    .map(|text| credits_from_bytes(text.as_bytes()))
+            })
+            .unwrap_or_default();
+    }
     let Some(raw) = read_credits_toml(pack_path) else {
         return Vec::new();
     };
-    let Some(parsed) = ayther_core::pack_credits::Credits::parse(&raw) else {
+    credits_from_bytes(&raw)
+}
+
+pub fn credits_from_bytes(raw: &[u8]) -> Vec<CreditLine> {
+    let Some(parsed) = ayther_core::pack_credits::Credits::parse(raw) else {
         return Vec::new();
     };
 
@@ -233,6 +267,41 @@ pub fn credits(pack_path: &Path) -> Vec<CreditLine> {
             .then_with(|| a.1.author.to_lowercase().cmp(&b.1.author.to_lowercase()))
     });
     rows.into_iter().map(|(_, line)| line).collect()
+}
+
+pub fn capabilities_from_catalog(
+    pack: &ayther_core::archive_vfs::CatalogMetadata,
+) -> crate::launch_config::PackCapabilities {
+    let mut caps = crate::launch_config::PackCapabilities {
+        declares_systems: pack.systems_declared,
+        output_recommended: pack.meta.output.clone().unwrap_or_default(),
+        profiles: vec![("original".into(), "Original".into())],
+        ..Default::default()
+    };
+    for (index, name) in ayther_core::archive_vfs::SUBSYSTEMS.iter().enumerate() {
+        if pack.systems.included.iter().any(|s| s == name) {
+            caps.systems |= 1 << index;
+        }
+    }
+    for profile in &pack.profiles {
+        if profile.id == "original" || profile.id.is_empty() {
+            continue;
+        }
+        if profile.default {
+            caps.default_profile = caps.profiles.len();
+        }
+        caps.profiles.push((
+            profile.id.clone(),
+            profile.name.clone().unwrap_or_else(|| profile.id.clone()),
+        ));
+    }
+    if caps.profiles.len() == 1 {
+        caps.profiles.push(("full".into(), "Completo".into()));
+    }
+    if caps.default_profile == 0 {
+        caps.default_profile = 1;
+    }
+    caps
 }
 
 /// Los bytes de `credits.toml` dentro del pack, si están.

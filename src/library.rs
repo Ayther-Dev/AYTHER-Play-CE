@@ -1,25 +1,20 @@
-//! library.rs — ROM scanner + JSON-backed library cache.
-//!
-//! # Scan pipeline (M5b)
-//!
-//!   walkdir (single-threaded) → filter by ROM extension
-//!   rayon par_iter            → CRC32 hash + pack discovery + cover path
-//!   main thread               → DAT name lookup + pack manifest read
-//!   main thread               → cover image loading (slint::Image is !Send)
-//!
-//! # Persistence
-//!
-//! JSON flat-file keyed on file path.  Idempotent upsert preserves any extra
-//! metadata (No-Intro names, play-time) across re-scans.
+//! Game identity and user state backed by the SQLite catalog actor.
+//! Directory reconciliation runs in `catalog_scan`; file identification and
+//! selected-game preparation run on workers. Legacy scan helpers remain only
+//! in tests. JSON is an import source, never the live persistence format.
 
+#[cfg(test)]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::UNIX_EPOCH;
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
 use walkdir::WalkDir;
 
 /// Señal de cancelación, compartida entre quien pide parar (la UI) y quien
@@ -31,6 +26,9 @@ pub type CancelToken = Arc<AtomicBool>;
 /// syscall deja de dominar y la memoria todavía no importa: lo que se retiró
 /// fue el archivo ENTERO en RAM, no la cantidad de vueltas.
 const CHUNK: usize = 1024 * 1024;
+static ROM_CONFIRMATIONS: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<PathBuf, crate::file_revision::Revision>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 // ---------------------------------------------------------------------------
 // Game model
@@ -117,6 +115,14 @@ pub fn platform_id(name: &str) -> Option<&'static str> {
 }
 
 impl Game {
+    pub fn ensure_id(&mut self) {
+        if self.id.is_empty() {
+            self.id = format!(
+                "{:x}",
+                Sha256::digest(format!("{}\0{}", self.path, self.sha256))
+            );
+        }
+    }
     /// El título que se muestra: el del jugador si lo hay, el automático si no.
     ///
     /// Un override en blanco NO cuenta: es alguien que borró el campo del
@@ -151,6 +157,7 @@ impl Game {
     /// campo en cada sitio— es una lista repetida, y la que se olvide de
     /// actualizar borra datos del jugador sin decir nada.
     fn keep_from_player(&mut self, previous_game: &Game) {
+        self.id.clone_from(&previous_game.id);
         self.favorite = previous_game.favorite;
         self.hidden = previous_game.hidden;
         self.user_title = previous_game.user_title.clone();
@@ -158,31 +165,17 @@ impl Game {
         self.last_played = previous_game.last_played;
         self.seconds_played = previous_game.seconds_played;
     }
-
-    /// #591: la misma ROM, en otra carpeta. Se actualiza sólo lo que DEPENDE de
-    /// dónde está el archivo; todo lo demás —lo que el escaneo no produce— es
-    /// justamente lo que hay que conservar, y se conserva por no tocarlo.
-    ///
-    /// `name` y `region` no se copian del escaneo: los pone el DAT (o el
-    /// jugador, a partir de #593) y el escaneo sólo sabe el nombre del archivo.
-    fn update_location_from(&mut self, new: &Game) {
-        self.path = new.path.clone();
-        self.platform = new.platform.clone();
-        self.has_pack = new.has_pack;
-        self.pack_path = new.pack_path.clone();
-        self.pack_status = new.pack_status;
-        self.available_packs.clone_from(&new.available_packs);
-        self.compat_reason.clone_from(&new.compat_reason);
-        self.compat_codes.clone_from(&new.compat_codes);
-        self.cover_path = new.cover_path.clone();
-        self.size_bytes = new.size_bytes;
-        self.mtime = new.mtime;
-    }
 }
 
 /// A single game entry in the library.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub sha256: String,
+    #[serde(default)]
+    pub revision: Option<crate::file_revision::Revision>,
     /// Display name.  Set to the filename stem during scan; overwritten by
     /// the No-Intro DAT name if a DAT is configured.
     pub name: String,
@@ -339,6 +332,7 @@ pub(crate) fn platform_for_ext(ext: &str) -> Option<&'static str> {
 /// cortado a mitad SÍ produjo resultados válidos —los archivos que alcanzó a
 /// mirar— y tirarlos sería re-hashearlos la próxima vez sin ninguna necesidad.
 /// Quien recibe esto decide qué hacer con el estado, no si los datos sirven.
+#[cfg(test)]
 pub struct ScanOutcome {
     pub games: Vec<Game>,
     pub cancelled: bool,
@@ -360,6 +354,7 @@ pub struct ScanOutcome {
 /// `progreso` recibe `(hechos, total)` y se llama desde los hilos de rayon, así
 /// que tiene que ser `Sync` y barato — quien quiera tocar la UI que empaquete y
 /// se lo mande al hilo del event loop.
+#[cfg(test)]
 pub fn scan_incremental(
     dir: &Path,
     known_games: &HashMap<String, Game>,
@@ -412,12 +407,25 @@ pub fn scan_incremental(
     ScanOutcome { games, cancelled }
 }
 
-fn scan_one(path: &Path, known_games: &HashMap<String, Game>) -> Option<Game> {
+#[cfg(test)]
+pub(crate) fn scan_one(path: &Path, known_games: &HashMap<String, Game>) -> Option<Game> {
+    scan_one_cancelable(path, known_games, &AtomicBool::new(false))
+}
+
+pub(crate) fn scan_one_cancelable(
+    path: &Path,
+    known_games: &HashMap<String, Game>,
+    cancel: &AtomicBool,
+) -> Option<Game> {
     let ext = path.extension()?.to_str()?;
     let platform = platform_for_ext(ext)?.to_string();
     let name = path.file_stem()?.to_str()?.to_owned();
 
-    let (size_bytes, mtime) = fingerprint(path);
+    let revision = crate::file_revision::Revision::observe(path).ok()?;
+    let (size_bytes, mtime) = (
+        revision.bytes,
+        (revision.modified_ns / 1_000_000_000) as i64,
+    );
     // #591: el atajo incremental. Mismo tamaño Y misma fecha = mismo contenido,
     // así que el CRC guardado sigue valiendo y el archivo no se abre. Se exigen
     // los dos: el tamaño solo deja pasar una edición que no cambió el largo, y
@@ -428,12 +436,16 @@ fn scan_one(path: &Path, known_games: &HashMap<String, Game>) -> Option<Game> {
     let cached_game = known_games
         .get(path.to_string_lossy().as_ref())
         .filter(|g| size_bytes != 0 && g.size_bytes == size_bytes && g.mtime == mtime)
-        .filter(|g| !g.crc32.is_empty());
+        .filter(|g| g.revision.as_ref() == Some(&revision))
+        .filter(|g| !g.crc32.is_empty() && !g.sha256.is_empty());
 
-    let crc32 = match cached_game {
-        Some(g) => g.crc32.clone(),
-        None => compute_crc32(path).unwrap_or_default(),
+    let (crc32, sha256) = match cached_game {
+        Some(g) => (g.crc32.clone(), g.sha256.clone()),
+        None => compute_hashes(path, cancel).ok()?,
     };
+    if crate::file_revision::Revision::observe(path).ok().as_ref() != Some(&revision) {
+        return None;
+    }
 
     // Pack junto a la ROM: .ay es el formato actual; .ae queda como legacy
     // pre-rebrand (se sigue leyendo, nunca se escribe).
@@ -446,7 +458,10 @@ fn scan_one(path: &Path, known_games: &HashMap<String, Game>) -> Option<Game> {
     }
     let has_pack = pack_path.exists();
 
-    Some(Game {
+    let mut game = Game {
+        id: String::new(),
+        sha256,
+        revision: Some(revision),
         name,
         path: path.to_string_lossy().into_owned(),
         platform,
@@ -489,45 +504,135 @@ fn scan_one(path: &Path, known_games: &HashMap<String, Game>) -> Option<Game> {
         user_art: None,
         last_played: 0,
         seconds_played: 0,
-    })
-}
-
-/// Tamaño y fecha de modificación, o `(0, 0)` si no se pudieron leer. El cero
-/// es deliberadamente un valor que ningún archivo real tiene como huella
-/// completa, así que se lee como «no sé» y manda a hashear.
-fn fingerprint(path: &Path) -> (u64, i64) {
-    let Ok(md) = path.metadata() else {
-        return (0, 0);
     };
-    let mtime = md
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    (md.len(), mtime)
+    game.ensure_id();
+    Some(game)
 }
 
-/// CRC32 del archivo, leído POR PARTES.
-///
-/// Antes esto era `std::fs::read()` —el archivo entero en RAM— y por eso existía
-/// un tope de 64 MiB más arriba que dejaba a las ROMs grandes con el CRC vacío.
-/// Un CRC vacío no falla: la ROM entra a la biblioteca sin match en el DAT, o
-/// sea sin nombre canónico y sin región, y el jugador ve un nombre de archivo
-/// donde debería ver el título del juego. El tope no se subió, se RETIRÓ: con
-/// un buffer fijo el tamaño del archivo dejó de ser un problema de memoria.
-fn compute_crc32(path: &Path) -> Option<String> {
-    let mut f = std::fs::File::open(path).ok()?;
+pub(crate) fn compute_hashes(
+    path: &Path,
+    cancel: &AtomicBool,
+) -> std::io::Result<(String, String)> {
+    let mut f = crate::file_revision::reserve(path)?;
+    let revision = crate::file_revision::Revision::from_file(&f)?;
+    let _permit =
+        crate::io_budget::acquire(&revision.identity, cancel).map_err(std::io::Error::other)?;
     let mut hasher = crc32fast::Hasher::new();
+    let mut sha = Sha256::new();
     let mut buf = vec![0u8; CHUNK];
     loop {
-        let n = f.read(&mut buf).ok()?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "Identificación cancelada",
+            ));
+        }
+        let n = f.read(&mut buf)?;
         if n == 0 {
             break;
         }
         hasher.update(&buf[..n]);
+        sha.update(&buf[..n]);
+        crate::cache_metrics::ROM_HASH_BYTES.fetch_add(n as u64, Ordering::Relaxed);
     }
-    Some(format!("{:08X}", hasher.finalize()))
+    if revision != crate::file_revision::Revision::from_file(&f)?
+        || revision != crate::file_revision::Revision::observe(path)?
+    {
+        return Err(std::io::Error::other(
+            "La ROM cambió durante su identificación",
+        ));
+    }
+    ROM_CONFIRMATIONS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.to_path_buf(), revision);
+    Ok((
+        format!("{:08X}", hasher.finalize()),
+        format!("{:x}", sha.finalize()),
+    ))
+}
+
+/// Shared details/play preparation. Persisted attributes alone do not restore
+/// observation continuity after restarting Play.
+pub fn prepare_rom(
+    library: &std::sync::Mutex<Library>,
+    path: &Path,
+    cancel: &AtomicBool,
+) -> Result<(std::fs::File, Game), String> {
+    let reserved = crate::file_revision::reserve(path)
+        .map_err(|e| format!("La ROM no está disponible o está en modificación: {e}"))?;
+    let revision =
+        crate::file_revision::Revision::from_file(&reserved).map_err(|e| e.to_string())?;
+    let mut game = library
+        .lock()
+        .map_err(|e| e.to_string())?
+        .known_games()
+        .get(path.to_string_lossy().as_ref())
+        .cloned()
+        .ok_or("El juego ya no está en la biblioteca")?;
+    let confirmed = ROM_CONFIRMATIONS
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(path)
+        .is_some_and(|r| r.proves_unchanged(&revision));
+    if confirmed && game.revision.as_ref() == Some(&revision) {
+        return Ok((reserved, game));
+    }
+    let (crc, sha) = compute_hashes(path, cancel).map_err(|e| e.to_string())?;
+    let replaced = (!game.sha256.is_empty() && game.sha256 != sha)
+        || (game.sha256.is_empty()
+            && !game.crc32.is_empty()
+            && !game.crc32.eq_ignore_ascii_case(&crc));
+    game.crc32 = crc;
+    game.sha256 = sha;
+    game.size_bytes = revision.bytes;
+    game.mtime = (revision.modified_ns / 1_000_000_000) as i64;
+    game.revision = Some(revision);
+    if replaced {
+        game.id.clear();
+        game.favorite = false;
+        game.hidden = false;
+        game.user_title = None;
+        game.user_art = None;
+        game.seconds_played = 0;
+        game.last_played = 0;
+        game.has_pack = false;
+        game.pack_path.clear();
+        game.available_packs.clear();
+        game.pack_status = PackStatus::NoPack;
+        game.compat_codes.clear();
+        game.compat_reason.clear();
+        game.name = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        game.region.clear();
+        game.cover_path.clear();
+        game.ensure_id();
+    }
+    if cancel.load(Ordering::Acquire) {
+        return Err("Preparación cancelada".into());
+    }
+    let mut library = library.lock().map_err(|e| e.to_string())?;
+    if !replaced
+        && let Some(latest) = library.known_games().get(&game.path)
+        && latest.id == game.id
+    {
+        game.keep_from_player(latest);
+        game.pack_path.clone_from(&latest.pack_path);
+        game.available_packs.clone_from(&latest.available_packs);
+        game.has_pack = latest.has_pack;
+    }
+    if !library.store.read_only()? {
+        library.save_game(&game)?;
+    } else if !replaced {
+        library.data.games.insert(game.path.clone(), game.clone());
+    }
+    if replaced {
+        return Err("La ROM cambió. Se conservó el historial anterior. Volvé a elegir el juego antes de iniciarlo.".into());
+    }
+    Ok((reserved, game))
 }
 
 // ---------------------------------------------------------------------------
@@ -602,6 +707,7 @@ pub struct InstalledPack {
 /// son packs instalados y se ignoran: `.prev` es la generación anterior que
 /// `rollback` guarda, y ofrecerla como si fuera un pack más sería ofrecer dos
 /// veces el mismo.
+#[cfg(test)]
 pub fn index_installed_packs(dir: &Path) -> Vec<InstalledPack> {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -612,6 +718,17 @@ pub fn index_installed_packs(dir: &Path) -> Vec<InstalledPack> {
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("ay"))
         .filter_map(|p| {
             let path = p.to_string_lossy().to_string();
+            if let Some(repo) = crate::pack_cache::global() {
+                let snapshot = repo.discover(&p).ok()?;
+                return Some(InstalledPack {
+                    id: p
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    path,
+                    rom_crc32: snapshot.crc32(),
+                });
+            }
             let arch = ayther_core::archive_vfs::AyArchive::open_verbose(&path).ok()?;
             Some(InstalledPack {
                 id: p
@@ -641,6 +758,7 @@ pub fn index_installed_packs(dir: &Path) -> Vec<InstalledPack> {
 /// Cada carpeta se lee plana, sin recursión, como `indexar_packs_instalados`:
 /// la carpeta de packs es una colección que el jugador arma, no un árbol que
 /// haya que rastrillar.
+#[cfg(test)]
 pub fn index_packs(dirs: &[std::path::PathBuf]) -> Vec<InstalledPack> {
     let mut v = Vec::new();
     for d in dirs {
@@ -656,6 +774,7 @@ pub fn index_packs(dirs: &[std::path::PathBuf]) -> Vec<InstalledPack> {
 /// es como lo escriben los packs horneados antes de que `[compat]` existiera
 /// (#294). Un pack que no dice ninguna de las dos cosas no se ata a ningún
 /// juego: es preferible que no aparezca a que aparezca en el equivocado.
+#[cfg(test)]
 fn declared_crc(arch: &ayther_core::archive_vfs::AyArchive) -> Option<String> {
     if let Some(c) = arch.compat.rom_crc32.as_deref() {
         let c = c.trim().to_lowercase();
@@ -701,6 +820,22 @@ pub fn attach_installed_packs(games: &mut [Game], packs: &[InstalledPack]) {
         g.has_pack = !paths.is_empty();
         g.pack_path = paths.first().cloned().unwrap_or_default();
         g.available_packs = paths;
+    }
+}
+
+/// An enumeration started before a pack edit must not restore a deleted option.
+pub fn keep_newer_pack_choice(scanned: &mut Game, before: &Game, latest: &Game) {
+    if latest.id == before.id
+        && scanned.sha256 == before.sha256
+        && (latest.available_packs != before.available_packs
+            || latest.pack_path != before.pack_path)
+    {
+        scanned.available_packs.clone_from(&latest.available_packs);
+        scanned.pack_path.clone_from(&latest.pack_path);
+        scanned.has_pack = latest.has_pack;
+        scanned.pack_status = latest.pack_status;
+        scanned.compat_reason.clone_from(&latest.compat_reason);
+        scanned.compat_codes.clone_from(&latest.compat_codes);
     }
 }
 
@@ -750,7 +885,40 @@ pub fn enrich_pack_status_progress(
             core_build_id,
             ..Default::default()
         };
-        let v = compat_grade(&g.pack_path, &ctx);
+        let v = if let Some(repo) = crate::pack_cache::global() {
+            if let Some(snapshot) = repo.peek(Path::new(&g.pack_path)) {
+                if snapshot.audit.is_none()
+                    || !repo.is_confirmed(Path::new(&g.pack_path), &snapshot.revision)
+                {
+                    g.pack_status = PackStatus::Unverified;
+                    g.compat_reason = "Comprobación pendiente".into();
+                    progress(index + 1, total);
+                    continue;
+                }
+                if snapshot
+                    .audit
+                    .as_ref()
+                    .is_some_and(|audit| !audit.is_installable())
+                {
+                    g.pack_status = PackStatus::Incompatible;
+                    g.compat_reason = "El pack no superó la comprobación de integridad".into();
+                    progress(index + 1, total);
+                    continue;
+                }
+                ayther_core::pack_validate::grade_report(
+                    ayther_core::pack_validate::validate_metadata(&snapshot.metadata, &ctx),
+                    &ctx,
+                )
+            } else {
+                g.pack_status = PackStatus::Unverified;
+                g.compat_reason = "Comprobación pendiente".into();
+                g.compat_codes.clear();
+                progress(index + 1, total);
+                continue;
+            }
+        } else {
+            compat_grade(&g.pack_path, &ctx)
+        };
         g.pack_status = PackStatus::from_grade(v.grade);
         g.compat_reason = v.reason;
         // Sólo los de COMPATIBILIDAD: los de publicación (licencia, autor,
@@ -780,6 +948,7 @@ pub fn enrich_pack_status_progress(
 ///
 /// Sets `game.cover_path` to the first match found (empty string if none).
 /// Manual choices remain separate in `user_art` and take precedence in `artwork()`.
+#[cfg(test)]
 pub fn find_covers(games: &mut [Game], covers_dir: &Path) {
     for g in games.iter_mut() {
         g.cover_path = find_cover_path(g, covers_dir)
@@ -788,6 +957,59 @@ pub fn find_covers(games: &mut [Game], covers_dir: &Path) {
     }
 }
 
+/// Built from inventory attributes; lookups perform no filesystem calls.
+pub struct CoverIndex(HashMap<(PathBuf, String), Vec<(usize, PathBuf)>>);
+
+impl CoverIndex {
+    pub fn new(files: &std::collections::BTreeSet<PathBuf>) -> Self {
+        let mut index: HashMap<_, Vec<_>> = HashMap::new();
+        for path in files {
+            let Some(ext) = path.extension().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Some(rank) = ["png", "jpg", "jpeg", "webp"]
+                .iter()
+                .position(|e| ext.eq_ignore_ascii_case(e))
+            else {
+                continue;
+            };
+            if let (Some(parent), Some(stem)) = (path.parent(), path.file_stem()) {
+                index
+                    .entry((parent.to_path_buf(), stem.to_string_lossy().into_owned()))
+                    .or_default()
+                    .push((rank, path.clone()));
+            }
+        }
+        for paths in index.values_mut() {
+            paths.sort();
+        }
+        Self(index)
+    }
+
+    pub fn find(&self, game: &Game, dir: &Path) -> Option<String> {
+        let rom = Path::new(&game.path);
+        let slug = game
+            .name
+            .to_lowercase()
+            .replace(|c: char| !c.is_alphanumeric() && c != '-', "_");
+        let mut keys = Vec::with_capacity(3);
+        if let (Some(parent), Some(stem)) = (rom.parent(), rom.file_stem()) {
+            keys.push((parent.to_path_buf(), stem.to_string_lossy().into_owned()));
+        }
+        if !game.crc32.is_empty() {
+            keys.push((dir.to_path_buf(), game.crc32.clone()));
+        }
+        keys.push((dir.to_path_buf(), slug));
+        keys.into_iter().find_map(|key| {
+            self.0
+                .get(&key)
+                .and_then(|paths| paths.first())
+                .map(|(_, path)| path.to_string_lossy().into_owned())
+        })
+    }
+}
+
+#[cfg(test)]
 fn find_cover_path(game: &Game, dir: &Path) -> Option<PathBuf> {
     let rom = Path::new(&game.path);
     if let (Some(parent), Some(stem)) = (rom.parent(), rom.file_stem())
@@ -846,27 +1068,58 @@ struct LibraryData {
 }
 
 pub struct Library {
-    path: PathBuf,
+    store: crate::catalog::Store,
     data: LibraryData,
 }
 
 impl Library {
+    pub fn deferred(store: crate::catalog::Store) -> Self {
+        Self {
+            store,
+            data: LibraryData::default(),
+        }
+    }
+
+    pub fn load(&mut self, legacy: &Path) -> Result<(), String> {
+        if !self.store.read_only()? {
+            self.store.import_legacy(legacy)?;
+        }
+        self.data.games = self
+            .store
+            .load_games()?
+            .into_iter()
+            .map(|mut g| {
+                if g.has_pack {
+                    g.pack_status = PackStatus::Unverified;
+                    g.compat_reason = "Comprobación pendiente al abrir el juego".into();
+                }
+                (g.path.clone(), g)
+            })
+            .collect();
+        Ok(())
+    }
+    #[cfg(test)]
     pub fn open(path: &Path) -> Self {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let data = if path.exists() {
-            std::fs::read_to_string(path)
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or_default()
-        } else {
-            LibraryData::default()
-        };
-        Library {
-            path: path.to_owned(),
-            data,
-        }
+        Self::try_open(&path.with_extension("sqlite3"), path).expect("test database")
+    }
+
+    #[cfg(test)]
+    pub fn try_open(db: &Path, legacy: &Path) -> Result<Self, String> {
+        let store = crate::catalog::Store::open(db)?;
+        store.import_legacy(legacy)?;
+        let games = store
+            .load_games()?
+            .into_iter()
+            .map(|g| (g.path.clone(), g))
+            .collect();
+        Ok(Self {
+            store,
+            data: LibraryData { games },
+        })
+    }
+
+    pub fn store(&self) -> crate::catalog::Store {
+        self.store.clone()
     }
 
     /// Las entradas vigentes, por ruta — lo que `scan_incremental` necesita
@@ -876,6 +1129,7 @@ impl Library {
     }
 
     /// Restore selection after discovery and before grading the selected pack.
+    #[cfg(test)]
     pub fn restore_pack_selection(&self, games: &mut [Game]) {
         for game in games {
             let previous = self.data.games.get(&game.path).or_else(|| {
@@ -908,56 +1162,56 @@ impl Library {
     /// enumerarlo**. Al revés —copiar campo por campo de la vieja a la nueva—
     /// hay una lista que actualizar cada vez que el modelo crece, y es la clase
     /// de lista que se olvida.
-    pub fn upsert_games(&mut self, games: &[Game]) {
-        for g in games {
-            if let Some(previous_game) = self.data.games.get(&g.path) {
-                // #593 — SE FUSIONA, no se reemplaza. Reemplazar estuvo bien
-                // mientras `Game` era puro dato del disco; desde que hay
-                // favoritos, títulos editados y tiempo de juego, un escaneo
-                // reemplazando la entrada BORRA todo eso — y no ruidosamente:
-                // el juego sigue ahí, sólo que ya no es favorito y volvió a
-                // llamarse como el archivo. Se descubrió apretando F5 con un
-                // favorito puesto.
-                let mut new = g.clone();
-                new.keep_from_player(previous_game);
-                self.data.games.insert(g.path.clone(), new);
-                continue;
-            }
-            // Ruta nueva: ¿es una ROM movida? Sólo cuenta si la entrada vieja
-            // apunta a un archivo que ya NO está — si las dos existen son dos
-            // copias del mismo juego, y son dos entradas legítimas.
-            let previous_path = (!g.crc32.is_empty())
-                .then(|| {
-                    self.data
-                        .games
-                        .iter()
-                        .find(|(path, previous_game)| {
-                            previous_game.crc32 == g.crc32
-                                && path.as_str() != g.path
-                                && !Path::new(path.as_str()).exists()
-                        })
-                        .map(|(path, _)| path.clone())
-                })
-                .flatten();
-
-            match previous_path {
-                Some(old_path) => {
-                    let mut entry = self
-                        .data
-                        .games
-                        .remove(&old_path)
-                        .expect("la ruta salió de este mismo mapa");
-                    entry.update_location_from(g);
-                    self.data.games.insert(g.path.clone(), entry);
-                }
-                None => {
-                    self.data.games.insert(g.path.clone(), g.clone());
-                }
-            }
-        }
-        self.save();
+    #[cfg(test)]
+    pub fn upsert_games(&mut self, games: &[Game]) -> Result<(), String> {
+        self.apply_scan(games, &[])
     }
 
+    /// Move state only from exactly one source whose absence was established
+    /// by a complete, successful enumeration. A path.exists failure is not proof.
+    pub fn apply_scan(&mut self, games: &[Game], absent: &[String]) -> Result<(), String> {
+        for chunk in games.chunks(100) {
+            let mut moved = Vec::new();
+            let mut rows = Vec::new();
+            for game in chunk {
+                let mut updated = game.clone();
+                if let Some(previous) = self.data.games.get(&game.path)
+                    && (previous.sha256.is_empty() || previous.sha256 == game.sha256)
+                {
+                    updated.keep_from_player(previous);
+                } else if !game.sha256.is_empty() {
+                    let candidates: Vec<_> = absent
+                        .iter()
+                        .filter_map(|p| self.data.games.get(p))
+                        .filter(|g| g.sha256 == game.sha256 && !moved.contains(&g.path))
+                        .collect();
+                    if let [previous] = candidates.as_slice() {
+                        updated.keep_from_player(previous);
+                        updated.name.clone_from(&previous.name);
+                        updated.region.clone_from(&previous.region);
+                        moved.push(previous.path.clone());
+                    } else if let Some(previous) = self.store.historical_game(&game.id)?
+                        && previous.sha256 == game.sha256
+                    {
+                        updated.keep_from_player(&previous);
+                        updated.pack_path.clone_from(&previous.pack_path);
+                        updated.has_pack = previous.has_pack;
+                    }
+                }
+                updated.ensure_id();
+                rows.push(updated);
+            }
+            self.store.save_games(&rows)?;
+            for path in moved {
+                self.data.games.remove(&path);
+            }
+            for row in rows {
+                self.data.games.insert(row.path.clone(), row);
+            }
+        }
+        self.retire_paths(absent.to_vec())?;
+        Ok(())
+    }
     /// #593: guarda UNA entrada tal cual, para el camino de las ediciones.
     ///
     /// Es una operación distinta de `upsert_games` y por eso es otra función.
@@ -966,9 +1220,64 @@ impl Library {
     /// cambiarlo, así que conservarlo sería deshacer lo que pidió. Una sola
     /// función con una bandera habría hecho que el día que alguien pase la
     /// bandera al revés el síntoma sea «marcar favorito no hace nada».
-    pub fn save_game(&mut self, g: &Game) {
-        self.data.games.insert(g.path.clone(), g.clone());
-        self.save();
+    pub fn save_game(&mut self, g: &Game) -> Result<(), String> {
+        let mut game = g.clone();
+        game.ensure_id();
+        self.store.save_games(std::slice::from_ref(&game))?;
+        self.data.games.insert(game.path.clone(), game);
+        Ok(())
+    }
+
+    /// Remove a confirmed uninstall from every game's options in one transaction.
+    /// Keep an unavailable selection as history; never activate a different pack.
+    pub fn forget_pack(&mut self, path: &str) -> Result<(), String> {
+        let mut games = Vec::new();
+        for game in self.data.games.values() {
+            if !game.available_packs.iter().any(|p| p == path) && game.pack_path != path {
+                continue;
+            }
+            let mut game = game.clone();
+            game.available_packs.retain(|p| p != path);
+            if game.pack_path == path {
+                game.pack_status = PackStatus::Incompatible;
+                game.compat_codes.clear();
+                game.compat_reason =
+                    "El pack seleccionado fue desinstalado. Elegí otro pack o jugá al original."
+                        .into();
+            }
+            games.push(game);
+        }
+        self.store.save_pack_associations(&games)?;
+        for game in games {
+            self.data.games.insert(game.path.clone(), game);
+        }
+        Ok(())
+    }
+
+    /// Apply only fields actually edited by this UI action to the latest row.
+    /// A delayed favorite edit cannot overwrite scan results or session totals.
+    pub fn save_user_edit(&mut self, before: &Game, edited: &Game) -> Result<Game, String> {
+        let mut current = self
+            .data
+            .games
+            .get(&edited.path)
+            .filter(|g| g.id == edited.id)
+            .cloned()
+            .ok_or("El juego cambió mientras se guardaba la edición")?;
+        if before.favorite != edited.favorite {
+            current.favorite = edited.favorite;
+        }
+        if before.hidden != edited.hidden {
+            current.hidden = edited.hidden;
+        }
+        if before.user_title != edited.user_title {
+            current.user_title.clone_from(&edited.user_title);
+        }
+        if before.user_art != edited.user_art {
+            current.user_art.clone_from(&edited.user_art);
+        }
+        self.save_game(&current)?;
+        Ok(current)
     }
 
     /// #594: anota que se jugó a la ROM de `path` durante `segundos`.
@@ -986,25 +1295,39 @@ impl Library {
     /// Devuelve `false` si la ROM no está en la biblioteca, que pasa cuando se
     /// lanzó algo que después se borró del disco: no es un error, es que no hay
     /// dónde anotarlo.
+    #[cfg(test)]
     pub fn record_session(&mut self, path: &str, seconds: u64, when: i64) -> bool {
-        let Some(g) = self.data.games.get_mut(path) else {
-            return false;
+        self.record_session_once(&format!("legacy:{path}:{when}"), path, seconds, when)
+            .unwrap_or(false)
+    }
+
+    pub fn record_session_once(
+        &mut self,
+        session: &str,
+        path: &str,
+        seconds: u64,
+        when: i64,
+    ) -> Result<bool, String> {
+        let Some(mut g) = self.data.games.get(path).cloned() else {
+            return Ok(false);
         };
         g.last_played = when;
         g.seconds_played = g.seconds_played.saturating_add(seconds);
-        self.save();
-        true
+        if !self.store.record_session(session, &g, seconds)? {
+            return Ok(false);
+        }
+        self.data.games.insert(path.to_owned(), g);
+        Ok(true)
     }
 
-    /// Remove entries whose ROM no longer exists and persist.
-    pub fn prune_missing(&mut self) -> usize {
-        let before = self.data.games.len();
-        self.data.games.retain(|path, _| Path::new(path).exists());
-        let removed = before - self.data.games.len();
-        if removed > 0 {
-            self.save();
+    /// Retire only absences confirmed by a complete inventory.
+    pub fn retire_paths(&mut self, paths: Vec<String>) -> Result<usize, String> {
+        self.store.retire(paths.clone())?;
+        let count = paths.len();
+        for path in paths {
+            self.data.games.remove(&path);
         }
-        removed
+        Ok(count)
     }
 
     /// All games sorted by name.
@@ -1013,37 +1336,110 @@ impl Library {
         games.sort_by(|a, b| a.name.cmp(&b.name));
         games
     }
-
-    /// Persiste la caché de forma ATÓMICA: se escribe a un temporal al lado y
-    /// recién ahí se renombra sobre el bueno.
-    ///
-    /// #591 — es lo que hace cierto el criterio «cancelar deja la caché
-    /// consistente». Con `fs::write` directo, cortar el proceso en el medio
-    /// —cancelar, cerrar Play, quedarse sin batería— dejaba un JSON truncado, y
-    /// un JSON truncado no parsea: `Library::open` cae a `unwrap_or_default()` y
-    /// el jugador arranca con la biblioteca VACÍA. El rename es lo único que el
-    /// sistema de archivos garantiza que pasa o no pasa.
-    fn save(&self) {
-        let Ok(json) = serde_json::to_string_pretty(&self.data) else {
-            return;
-        };
-        // El temporal va en el MISMO directorio que el destino: un rename entre
-        // volúmenes no es atómico (ni siquiera es un rename), y el temp del
-        // sistema puede estar en otro disco.
-        let tmp = self.path.with_extension("json.tmp");
-        if let Err(e) = std::fs::write(&tmp, json) {
-            eprintln!("[library] Failed to save: {e}");
-            return;
-        }
-        if let Err(e) = std::fs::rename(&tmp, &self.path) {
-            eprintln!("[library] Failed to commit: {e}");
-            let _ = std::fs::remove_file(&tmp);
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn readding_a_root_restores_its_own_historical_user_state() {
+        let d = tempfile::tempdir().unwrap();
+        let rom = rom_in(d.path(), "one.md", b"rom");
+        let mut game = scan_one(&rom, &HashMap::new()).unwrap();
+        game.favorite = true;
+        game.seconds_played = 42;
+        let mut library = Library::open(&d.path().join("library.json"));
+        library.save_game(&game).unwrap();
+        library.retire_paths(vec![game.path.clone()]).unwrap();
+        let rediscovered = scan_one(&rom, &HashMap::new()).unwrap();
+        library.apply_scan(&[rediscovered], &[]).unwrap();
+        let restored = library.known_games().get(&game.path).unwrap();
+        assert_eq!(restored.id, game.id);
+        assert!(restored.favorite);
+        assert_eq!(restored.seconds_played, 42);
+    }
+    #[test]
+    fn cached_cover_index_does_not_need_the_files_to_be_opened() {
+        let d = tempfile::tempdir().unwrap();
+        let rom = rom_in(d.path(), "one.md", b"rom");
+        let game = scan_one(&rom, &HashMap::new()).unwrap();
+        let jpg = rom.with_extension("JPG");
+        let png = rom.with_extension("png");
+        let files = [jpg, png.clone()].into_iter().collect();
+        let index = CoverIndex::new(&files);
+        assert_eq!(
+            index.find(&game, d.path()),
+            Some(png.to_string_lossy().into_owned())
+        );
+        assert!(!png.exists());
+    }
+
+    #[test]
+    fn delayed_user_edits_do_not_undo_metadata_or_duplicate_session_time() {
+        let d = tempfile::tempdir().unwrap();
+        let rom = rom_in(d.path(), "one.md", b"rom");
+        let game = scan_one(&rom, &HashMap::new()).unwrap();
+        let mut library = Library::open(&d.path().join("library.json"));
+        library.save_game(&game).unwrap();
+        let mut edited = game.clone();
+        edited.favorite = true;
+        let mut latest = game.clone();
+        latest.name = "New DAT name".into();
+        library.save_game(&latest).unwrap();
+        assert!(
+            library
+                .record_session_once("session-1", &game.path, 90, 123)
+                .unwrap()
+        );
+        assert!(
+            !library
+                .record_session_once("session-1", &game.path, 90, 123)
+                .unwrap()
+        );
+        let saved = library.save_user_edit(&game, &edited).unwrap();
+        assert!(saved.favorite);
+        assert_eq!(saved.name, "New DAT name");
+        assert_eq!(saved.seconds_played, 90);
+    }
+
+    #[test]
+    fn selected_replaced_rom_cancels_intent_and_preserves_historical_user_state() {
+        let d = tempfile::tempdir().unwrap();
+        let rom = rom_in(d.path(), "one.md", b"old");
+        let mut old = scan_one(&rom, &HashMap::new()).unwrap();
+        old.favorite = true;
+        let mut library = Library::open(&d.path().join("library.json"));
+        library.save_game(&old).unwrap();
+        let store = library.store();
+        std::fs::write(&rom, b"new").unwrap();
+        let library = std::sync::Mutex::new(library);
+        assert!(
+            prepare_rom(&library, &rom, &AtomicBool::new(false))
+                .unwrap_err()
+                .contains("ROM cambió")
+        );
+        let game = library
+            .lock()
+            .unwrap()
+            .known_games()
+            .get(&old.path)
+            .unwrap()
+            .clone();
+        assert_ne!(game.id, old.id);
+        assert!(!game.favorite);
+        let old_id = old.id;
+        assert_eq!(
+            store
+                .call(move |db| db
+                    .query_row(
+                        "SELECT favorite,active FROM games WHERE id=?1",
+                        [old_id],
+                        |r| Ok((r.get::<_, bool>(0)?, r.get::<_, bool>(1)?))
+                    )
+                    .map_err(|e| e.to_string()))
+                .unwrap(),
+            (true, false)
+        );
+    }
     use super::*;
 
     #[test]
@@ -1361,7 +1757,7 @@ mod tests {
         games[0].pack_path = games[0].available_packs[1].clone();
         let selected = games[0].pack_path.clone();
         let cache = dir.path().join("library.json");
-        Library::open(&cache).save_game(&games[0]);
+        Library::open(&cache).save_game(&games[0]).unwrap();
         let lib = Library::open(&cache);
 
         let mut scanned = vec![scan_one(&rom, lib.known_games()).unwrap()];
@@ -1377,6 +1773,79 @@ mod tests {
         assert_eq!(
             scanned[0].pack_path,
             rom.with_extension("ay").to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn uninstalling_an_unselected_pack_updates_all_games_and_survives_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let packs = dir.path().join("packs");
+        std::fs::create_dir(&packs).unwrap();
+        let selected = packs.join("selected.ay");
+        let removed = packs.join("incompatible.ay");
+        std::fs::write(&selected, b"kept").unwrap();
+        std::fs::write(&removed, b"unreadable pack can still be removed").unwrap();
+        let cache = dir.path().join("library.json");
+        let mut library = Library::open(&cache);
+        for name in ["first.md", "second.md"] {
+            let rom = rom_in(dir.path(), name, b"rom");
+            let mut game = scan_one(&rom, &HashMap::new()).unwrap();
+            game.has_pack = true;
+            game.pack_path = selected.to_string_lossy().into_owned();
+            game.available_packs = vec![
+                game.pack_path.clone(),
+                removed.to_string_lossy().into_owned(),
+            ];
+            game.favorite = true;
+            game.seconds_played = 42;
+            library.save_game(&game).unwrap();
+        }
+        assert!(matches!(
+            crate::pack_install::uninstall_path(&packs, &removed),
+            crate::pack_install::UninstallResult::Uninstalled { .. }
+        ));
+        library.forget_pack(&removed.to_string_lossy()).unwrap();
+        drop(library);
+        let reloaded = Library::open(&cache);
+        assert_eq!(reloaded.get_all().len(), 2);
+        for game in reloaded.get_all() {
+            assert_eq!(
+                game.available_packs,
+                vec![selected.to_string_lossy().into_owned()]
+            );
+            assert_eq!(game.pack_path, selected.to_string_lossy());
+            assert!(game.favorite);
+            assert_eq!(game.seconds_played, 42);
+        }
+        assert!(selected.is_file());
+        assert!(!removed.exists());
+    }
+
+    #[test]
+    fn uninstalling_the_last_pack_clears_options_and_stale_scans_cannot_restore_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = rom_in(dir.path(), "game.md", b"rom");
+        let pack = rom.with_extension("ay");
+        std::fs::write(&pack, b"broken").unwrap();
+        let before = scan_one(&rom, &HashMap::new()).unwrap();
+        let cache = dir.path().join("library.json");
+        let mut library = Library::open(&cache);
+        library.save_game(&before).unwrap();
+        std::fs::remove_file(&pack).unwrap();
+        library.forget_pack(&pack.to_string_lossy()).unwrap();
+        let latest = &library.known_games()[&before.path];
+        assert!(latest.available_packs.is_empty());
+        assert_eq!(latest.pack_status, PackStatus::Incompatible);
+        let mut stale = before.clone();
+        keep_newer_pack_choice(&mut stale, &before, latest);
+        library.apply_scan(&[stale], &[]).unwrap();
+        drop(library);
+        let reloaded = Library::open(&cache);
+        let game = &reloaded.known_games()[&before.path];
+        assert!(game.available_packs.is_empty());
+        assert_eq!(
+            game.pack_path, before.pack_path,
+            "unavailable history must not activate another pack"
         );
     }
 
@@ -1568,7 +2037,8 @@ mod tests {
 
         let origin = rom_in(&before, "juego.md", b"la misma rom");
         let mut lib = Library::open(&dir.path().join("library.json"));
-        lib.upsert_games(&[scan_one(&origin, &HashMap::new()).unwrap()]);
+        lib.upsert_games(&[scan_one(&origin, &HashMap::new()).unwrap()])
+            .unwrap();
 
         // Lo que el escaneo NO produce y tiene que sobrevivir.
         {
@@ -1580,7 +2050,11 @@ mod tests {
 
         let destination = after.join("juego.md");
         std::fs::rename(&origin, &destination).unwrap();
-        lib.upsert_games(&[scan_one(&destination, &HashMap::new()).unwrap()]);
+        lib.apply_scan(
+            &[scan_one(&destination, &HashMap::new()).unwrap()],
+            &[origin.to_string_lossy().into_owned()],
+        )
+        .unwrap();
 
         assert_eq!(
             lib.get_all().len(),
@@ -1763,14 +2237,15 @@ mod tests {
         let mut lib = Library::open(&dir.path().join("library.json"));
 
         // Primer escaneo, y el jugador toca sus cosas.
-        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()]);
+        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()])
+            .unwrap();
         let mut customized_game = lib.get_all()[0].clone();
         customized_game.favorite = true;
         customized_game.user_title = Some("Como yo le digo".into());
         customized_game.user_art = Some("covers/custom.png".into());
         customized_game.last_played = 12345;
         customized_game.seconds_played = 600;
-        lib.save_game(&customized_game);
+        lib.save_game(&customized_game).unwrap();
 
         // F5: el escaneo vuelve a producir la MISMA ruta, con los campos del
         // jugador en su valor por defecto.
@@ -1779,12 +2254,13 @@ mod tests {
             !rescanned_game.favorite && rescanned_game.user_title.is_none(),
             "el fixture tiene que representar lo que el escaneo produce"
         );
-        lib.upsert_games(&[rescanned_game]);
+        lib.upsert_games(&[rescanned_game]).unwrap();
 
         let g = &lib.get_all()[0];
         assert!(g.favorite, "el favorito no sobrevivio al re-escaneo");
         assert_eq!(g.title(), "Como yo le digo", "el titulo editado se perdio");
         assert_eq!(g.artwork(), "covers/custom.png");
+        drop(lib);
         let reopened = Library::open(&dir.path().join("library.json"));
         assert_eq!(reopened.get_all()[0].artwork(), "covers/custom.png");
         assert_eq!(g.last_played, 12345);
@@ -1804,7 +2280,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let rom = rom_in(dir.path(), "juego.md", b"x");
         let mut lib = Library::open(&dir.path().join("library.json"));
-        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()]);
+        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()])
+            .unwrap();
         let path = rom.to_string_lossy().to_string();
 
         assert!(lib.record_session(&path, 600, 1000));
@@ -1815,7 +2292,8 @@ mod tests {
         assert_eq!(g.last_played, 2000, "y la fecha es la de la ULTIMA");
 
         // Y sobrevive al re-escaneo, como el resto de lo del jugador.
-        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()]);
+        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()])
+            .unwrap();
         assert_eq!(lib.get_all()[0].seconds_played, 900);
     }
 
@@ -1837,15 +2315,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let rom = rom_in(dir.path(), "juego.md", b"x");
         let mut lib = Library::open(&dir.path().join("library.json"));
-        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()]);
+        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()])
+            .unwrap();
 
         let mut g = lib.get_all()[0].clone();
         g.favorite = true;
-        lib.save_game(&g);
+        lib.save_game(&g).unwrap();
         assert!(lib.get_all()[0].favorite);
 
         g.favorite = false;
-        lib.save_game(&g);
+        lib.save_game(&g).unwrap();
         assert!(
             !lib.get_all()[0].favorite,
             "desmarcar tiene que poder deshacerse"
@@ -1869,8 +2348,8 @@ mod tests {
         );
 
         let mut lib = Library::open(&dir.path().join("library.json"));
-        lib.upsert_games(&[ga]);
-        lib.upsert_games(&[gb]);
+        lib.upsert_games(&[ga]).unwrap();
+        lib.upsert_games(&[gb]).unwrap();
         assert_eq!(lib.get_all().len(), 2, "las dos existen: son dos entradas");
     }
 
@@ -1884,13 +2363,18 @@ mod tests {
         let rom = rom_in(dir.path(), "juego.md", b"x");
 
         let mut lib = Library::open(&path);
-        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()]);
+        lib.upsert_games(&[scan_one(&rom, &HashMap::new()).unwrap()])
+            .unwrap();
 
-        assert!(path.exists(), "el destino quedo escrito");
+        assert!(
+            path.with_extension("sqlite3").exists(),
+            "el destino quedo escrito"
+        );
         assert!(
             !path.with_extension("json.tmp").exists(),
             "el temporal no sobrevive al commit"
         );
+        drop(lib);
         assert_eq!(
             Library::open(&path).get_all().len(),
             1,

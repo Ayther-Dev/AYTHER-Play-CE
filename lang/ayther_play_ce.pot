@@ -240,6 +240,9 @@ msgstr ""
 msgid "Seleccionar"
 msgstr ""
 
+msgid "Seleccionado"
+msgstr ""
+
 #: ui/appwindow.slint
 msgid "Filtrar"
 msgstr ""
@@ -1256,4 +1259,42 @@ msgid "Comprobando compatibilidad…"
 msgstr ""
 
 msgid "Buscando carátulas…"
+msgstr ""
+msgid "Jugar original"
+msgstr ""
+
+msgid "Actualizá el motor de juego"
+msgstr ""
+
+msgid "Este Runtime no confirmó los archivos preparados. Instalá la compilación de Runtime que acompaña a esta versión de Play CE y volvé a intentar."
+msgstr ""
+
+msgid "No se pudo reservar el archivo"
+msgstr ""
+
+msgid "La ROM o el pack cambió o está en uso. Esperá a que termine la copia o modificación y volvé a intentar."
+msgstr ""
+
+msgid "Cargando biblioteca…"
+msgstr ""
+
+msgid "Biblioteca cargada"
+msgstr ""
+
+msgid "Biblioteca lista. Revisá en Ajustes las carpetas que no están disponibles."
+msgstr ""
+
+msgid "Copiando pack…"
+msgstr ""
+
+msgid "Cancelando…"
+msgstr ""
+
+msgid "Preparando juego…"
+msgstr ""
+
+msgid "Comprobando pack…"
+msgstr ""
+
+msgid "Identificando juegos…"
 msgstr ""

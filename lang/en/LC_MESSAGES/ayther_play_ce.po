@@ -9,6 +9,45 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+msgid "Jugar original"
+msgstr "Play original"
+
+msgid "Actualizá el motor de juego"
+msgstr "Update the game engine"
+
+msgid "Este Runtime no confirmó los archivos preparados. Instalá la compilación de Runtime que acompaña a esta versión de Play CE y volvé a intentar."
+msgstr "This Runtime did not confirm the prepared files. Install the Runtime build supplied with this version of Play CE and try again."
+
+msgid "No se pudo reservar el archivo"
+msgstr "Could not reserve the file"
+
+msgid "La ROM o el pack cambió o está en uso. Esperá a que termine la copia o modificación y volvé a intentar."
+msgstr "The ROM or pack changed or is in use. Wait for the copy or modification to finish and try again."
+
+msgid "Cargando biblioteca…"
+msgstr "Loading library…"
+
+msgid "Biblioteca cargada"
+msgstr "Library loaded"
+
+msgid "Biblioteca lista. Revisá en Ajustes las carpetas que no están disponibles."
+msgstr "Library ready. Check unavailable folders in Settings."
+
+msgid "Copiando pack…"
+msgstr "Copying pack…"
+
+msgid "Cancelando…"
+msgstr "Cancelling…"
+
+msgid "Preparando juego…"
+msgstr "Preparing game…"
+
+msgid "Comprobando pack…"
+msgstr "Checking pack…"
+
+msgid "Identificando juegos…"
+msgstr "Identifying games…"
+
 msgid "No se reconoce la firma del pack"
 msgstr "The pack signature is not recognized"
 
@@ -57,6 +96,9 @@ msgstr "Switch pack"
 
 msgid "Desinstalar pack"
 msgstr "Uninstall pack"
+
+msgid "Seleccionado"
+msgstr "Selected"
 
 msgid "↑ Instalar pack · → Cambiar pack · ↓ Desinstalar pack"
 msgstr "↑ Install pack · → Switch pack · ↓ Uninstall pack"

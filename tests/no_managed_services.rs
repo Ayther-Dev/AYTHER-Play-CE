@@ -91,11 +91,29 @@ fn the_manifest_brings_nothing_to_talk_to_a_service_with() {
         .filter(|l| !l.trim_start().starts_with('#'))
         .collect::<Vec<_>>()
         .join("\n");
-    for dependency in ["reqwest", "ed25519", "httpdate", "windows-sys"] {
+    for dependency in ["reqwest", "ed25519", "httpdate"] {
         assert!(
             !dependency_declarations.contains(dependency),
             "`{dependency}` volvió a las dependencias de CE. Si hace falta, la pregunta no es \
              cómo agregarlo: es si lo que se está portando pertenece a esta edición (ADR-005)."
+        );
+    }
+    // Native file identity/sharing belongs to the offline cache. Credential
+    // storage and network APIs remain prohibited; do not allow the whole SDK.
+    let manifest: toml::Value = toml::from_str(&toml).unwrap();
+    let features = manifest["target"]["cfg(windows)"]["dependencies"]["windows-sys"]["features"]
+        .as_array()
+        .unwrap();
+    for feature in features {
+        assert!(
+            [
+                "Win32_Foundation",
+                "Win32_Storage_FileSystem",
+                "Win32_System_IO",
+                "Win32_System_Ioctl"
+            ]
+            .contains(&feature.as_str().unwrap()),
+            "Native feature outside the offline-file contract: {feature}"
         );
     }
 }
@@ -139,11 +157,23 @@ fn there_is_no_hub_module_or_symbol() {
 
     // Y los símbolos, para el caso en que el módulo se pegue adentro de otro.
     for (file, text) in sources() {
-        for symbol in ["reqwest::", "ed25519_dalek", "httpdate::", "windows_sys::"] {
+        for symbol in [
+            "reqwest::",
+            "ed25519_dalek",
+            "httpdate::",
+            "Security::Credentials",
+            "Win32::Networking",
+        ] {
             assert!(
                 !text.contains(symbol),
                 "`{file}` usa `{symbol}`: CE no habla con ningún servicio ni juzga \
                  la procedencia de un pack (ADR-005, `verifier.rs`)"
+            );
+        }
+        if text.contains("windows_sys::") {
+            assert_eq!(
+                file, "file_revision.rs",
+                "Native calls must stay in the reviewed file-revision adapter"
             );
         }
     }

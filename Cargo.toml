@@ -1,5 +1,7 @@
 [workspace]
 resolver = "3"
+members = ["vendor/ayther_core"]
+default-members = ["."]
 
 [workspace.package]
 version = "0.1.0"
@@ -42,6 +44,8 @@ dirs       = "5.0"
 toml       = "0.8"
 gilrs      = "0.11.2"
 tempfile   = "3"
+rusqlite   = { version = "=0.40.2", features = ["bundled", "backup"] }
+notify     = "8.2"
 
 # ---- Packs, DESDE EL DISCO -----------------------------------------------
 # CE no descarga packs: los lee de donde el jugador los dejó. Lo que sí hace es
@@ -49,9 +53,9 @@ tempfile   = "3"
 # resuelve el core, que es el mismo lector que usa el Runtime.
 zip        = "2"
 sha2       = "0.10"
-ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.9", version = "0.1", features = ["local-packs"] }
+ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.13", version = "0.1", features = ["local-packs"] }
 
-# Upstream rc.9 couples release reads to signer trust, which CE does not provide.
+# Upstream rc.13 couples release reads to signer trust, which CE does not provide.
 # Keep the scoped offline-reader patch reproducible; see vendor/ayther_core/CE-PATCH.md.
 [patch."https://github.com/Ayther-Dev/AYTHER-Engine"]
 ayther_core = { path = "vendor/ayther_core" }
@@ -63,11 +67,14 @@ ayther_core = { path = "vendor/ayther_core" }
 #                     confianza no dice nada. Decir «este pack es de quien dice
 #                     ser» necesita una fuente de confianza independiente.
 #   httpdate        — era para el reloj lógico de los guardados en la nube.
-#   windows-sys     — era para guardar el token de sesión en el Credential
-#                     Manager. Sin cuenta no hay token.
+# El adaptador Windows de caché usa solo identidad y reservas de archivos.
+# Credential Manager y las APIs de red siguen fuera de CE.
 #
 # Que la lista de dependencias sea más corta no es una casualidad: es la
 # diferencia entre las dos ediciones, escrita donde se compila.
 
 [dev-dependencies]
 serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }

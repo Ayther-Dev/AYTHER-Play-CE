@@ -148,7 +148,7 @@ pub const MANIFEST_SCHEMA: u32 = 2;
 pub const PACK_FORMAT: u32 = 1;
 
 /// Pack-level metadata from `manifest.toml → [pack]`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct PackMeta {
     /// Display name of the pack.
     pub name: String,
@@ -219,7 +219,7 @@ pub const fn tier_for_height(output_height: i32) -> u8 {
 ///
 /// Builders derive this table from actual contents. Unknown names are preserved
 /// for forward compatibility.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, serde::Serialize)]
 pub struct SystemsConfig {
     /// Canonical subsystem names included by the pack.
     #[serde(default)]
@@ -244,7 +244,7 @@ pub const SUBSYSTEMS: [&str; 8] = [
 ///
 /// A profile filters the pack's shared assets by subsystem and muted audio bus;
 /// it does not duplicate content.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, serde::Serialize)]
 pub struct ProfileDef {
     /// Stable identifier used by APIs and persisted configuration.
     pub id: String,
@@ -287,7 +287,7 @@ impl ProfileDef {
 }
 
 /// Optional runtime requirements from `manifest.toml → [compat]`.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, serde::Serialize)]
 pub struct CompatConfig {
     /// Required ROM CRC-32 as hexadecimal text without a prefix.
     #[serde(default)]
@@ -558,7 +558,40 @@ pub fn build_id_from_integrity(integrity_bytes: &[u8]) -> String {
     format!("{:x}", d)[..12].to_string()
 }
 
+/// Persistable manifest projection; it cannot be used to load assets.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CatalogMetadata {
+    /// Pack identity and presentation.
+    pub meta: PackMeta,
+    /// Declared session compatibility.
+    pub compat: CompatConfig,
+    /// Declared subsystems.
+    pub systems: SystemsConfig,
+    /// Distinguishes legacy absence from an empty declaration.
+    pub systems_declared: bool,
+    /// Sanitized profiles, including the implicit original.
+    pub profiles: Vec<ProfileDef>,
+}
+
 impl AyArchive {
+    /// Parses catalog metadata with the engine's schema/profile rules, without
+    /// opening an archive, verifying signatures, or exposing an asset backend.
+    pub fn catalog_metadata(manifest: &[u8]) -> Result<CatalogMetadata, AyError> {
+        let parsed = Self::finish_open(
+            manifest,
+            Backend::Resident(HashMap::new()),
+            String::new(),
+            None,
+        )?;
+        let profiles = parsed.profiles();
+        Ok(CatalogMetadata {
+            meta: parsed.meta,
+            compat: parsed.compat,
+            systems: parsed.systems,
+            systems_declared: parsed.systems_declared,
+            profiles,
+        })
+    }
     // -----------------------------------------------------------------------
     // open
     // -----------------------------------------------------------------------
@@ -2302,6 +2335,7 @@ systems = ["tiles"]
     }
 
     #[test]
+    #[cfg(not(feature = "local-packs"))] // Signature policy; CE audits bytes separately.
     fn lazy_tampered_integrity_rejected_at_open() {
         let out = tmp("lazy_src3.ay");
         build_signed_pack(&out);
@@ -2329,6 +2363,7 @@ systems = ["tiles"]
     }
 
     #[test]
+    #[cfg(not(feature = "local-packs"))] // Signature stripping is a trust-policy check.
     fn stripping_integrity_cannot_downgrade_to_legacy() {
         let out = tmp("lazy_src4.ay");
         build_signed_pack(&out);

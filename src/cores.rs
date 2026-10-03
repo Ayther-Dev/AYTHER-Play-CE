@@ -168,6 +168,17 @@ pub fn state(cfg: &Config, platform: &str) -> CoreAxis {
     }
 }
 
+/// Presentation uses the last probe. Launch preparation checks disk again.
+pub fn cached_state(cfg: &Config, platform: &str) -> CoreAxis {
+    let Some(path) = config::core_for(cfg, platform) else {
+        return CoreAxis::Missing;
+    };
+    match PROBES.lock() {
+        Ok(probes) => verdict_axis(probes.get(&path), platform),
+        Err(_) => CoreAxis::Unchecked,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // La decisión
 // ---------------------------------------------------------------------------
@@ -188,7 +199,11 @@ pub fn axis(cfg: &Config, probes: &Probes, platform: &str) -> CoreAxis {
     if !path.exists() {
         return CoreAxis::Missing;
     }
-    let Some(v) = probes.get(&path) else {
+    verdict_axis(probes.get(&path), platform)
+}
+
+fn verdict_axis(verdict: Option<&Verdict>, platform: &str) -> CoreAxis {
+    let Some(v) = verdict else {
         return CoreAxis::Unchecked;
     };
     match v {

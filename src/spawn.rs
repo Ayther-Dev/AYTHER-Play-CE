@@ -44,6 +44,7 @@ pub struct SessionResult {
 /// - `game_name` — display name for status messages
 /// - `on_exit`   — called from the background thread with the session result
 pub struct LaunchRequest<'a> {
+    pub reservations: &'a [std::sync::Arc<std::fs::File>],
     pub runtime: &'a Path,
     pub core: &'a Path,
     pub rom: &'a Path,
@@ -83,6 +84,37 @@ pub struct LaunchRequest<'a> {
     pub save: Option<&'a Path>,
 }
 
+fn append_ordinary_runtime_arguments(cmd: &mut Command, request: &LaunchRequest<'_>) {
+    cmd.args(["--core", &request.core.to_string_lossy()]);
+    cmd.args(["--rom", &request.rom.to_string_lossy()]);
+    if let Some(pack) = request.pack
+        && !pack.as_os_str().is_empty()
+    {
+        cmd.args(["--pack", &pack.to_string_lossy()]);
+        if let Some(registry) = request.trust_registry {
+            cmd.arg("--trust-registry").arg(registry);
+        }
+    }
+    // The selected launch configuration remains explicit in the command so a
+    // normal session can be reproduced from the same effective conditions.
+    if let Some(config) = request.cfg {
+        cmd.args(config.to_args());
+    }
+    if let Some(manifest) = request.manifest {
+        cmd.args(["--manifest", &manifest.to_string_lossy()]);
+    }
+    cmd.args(["--saves-dir", &request.saves_dir.to_string_lossy()]);
+    if let Some(input_map) = request.input_map {
+        cmd.args(["--input-map", &input_map.to_string_lossy()]);
+    }
+    if let Some(save) = request.save {
+        cmd.args(["--load-state", &save.to_string_lossy()]);
+    }
+    if !request.rom_crc32.is_empty() {
+        cmd.args(["--rom-crc32", request.rom_crc32]);
+    }
+}
+
 pub fn launch<E, F>(
     request: LaunchRequest<'_>,
     // #600 - cada evento del protocolo, tipado, a medida que llega.
@@ -97,59 +129,37 @@ pub fn launch<E, F>(
     E: Fn(&crate::runtime_event::RuntimeEvent) + Send + 'static,
     F: FnOnce(SessionResult) + Send + 'static,
 {
-    let LaunchRequest {
-        runtime,
-        core,
-        rom,
-        pack,
-        trust_registry,
-        game_name,
-        cfg,
-        manifest,
-        saves_dir,
-        rom_crc32,
-        input_map,
-        save,
-    } = request;
-    let mut cmd = Command::new(runtime);
-    cmd.args(["--core", &core.to_string_lossy()]);
-    cmd.args(["--rom", &rom.to_string_lossy()]);
-    if let Some(p) = pack
-        && !p.as_os_str().is_empty()
+    let reservations = request.reservations.to_vec();
+    let require_reservations = !reservations.is_empty();
+    let runtime_path = request.runtime;
+    let mut cmd = Command::new(runtime_path);
+    for (file, flag) in reservations
+        .iter()
+        .zip(["--rom-revision", "--pack-revision"])
     {
-        cmd.args(["--pack", &p.to_string_lossy()]);
-        if let Some(registry) = trust_registry {
-            cmd.arg("--trust-registry").arg(registry);
+        match crate::file_revision::Revision::from_file(file) {
+            Ok(revision) => {
+                cmd.arg(flag).arg(revision.runtime_token());
+            }
+            Err(error) => {
+                on_exit(SessionResult {
+                    game_name: request.game_name,
+                    clean_exit: false,
+                    exit_code: None,
+                    failure: crate::launch_failure::Failure {
+                        reason: "runtime.reservation_failed".into(),
+                        detail: error.to_string(),
+                        ..Default::default()
+                    },
+                    savestate_path: String::new(),
+                    played_secs: 0,
+                });
+                return;
+            }
         }
     }
-    // #311: la configuracion previa viaja como argumentos y no como un
-    // archivo que el runtime tenga que encontrar: asi lo que se lanzo
-    // queda escrito en la linea de comandos, y una sesion se puede
-    // reproducir copiandola.
-    if let Some(c) = cfg {
-        for a in c.to_args() {
-            cmd.arg(a);
-        }
-    }
-    // #596: y la sesión entera, en un archivo. Es lo que hace reproducible una
-    // partida —copiar el `launch.toml` y volver a lanzarlo— y la base del modo
-    // seguro (#601), que necesita saber qué había para poder quitarlo.
-    if let Some(m) = manifest {
-        cmd.args(["--manifest", &m.to_string_lossy()]);
-    }
-    // #603: el layout de guardados es <saves>/<game_id>/<perfil>/, y la
-    // revision de la ROM viaja en el nombre de cada version — asi sobrevive a
-    // copiar la carpeta, que es lo que la gente hace con sus guardados.
-    cmd.args(["--saves-dir", &saves_dir.to_string_lossy()]);
-    if let Some(im) = input_map {
-        cmd.args(["--input-map", &im.to_string_lossy()]);
-    }
-    if let Some(g) = save {
-        cmd.args(["--load-state", &g.to_string_lossy()]);
-    }
-    if !rom_crc32.is_empty() {
-        cmd.args(["--rom-crc32", rom_crc32]);
-    }
+    append_ordinary_runtime_arguments(&mut cmd, &request);
+    let game_name = request.game_name;
     cmd.stdout(Stdio::piped());
     // #600: el stderr TAMBIÉN. Antes iba a la consola del padre —o a la nada,
     // en una build de ventana— así que un core que no cargaba dejaba a Play
@@ -160,7 +170,7 @@ pub fn launch<E, F>(
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            crate::log_error!("spawn", "no se pudo lanzar {}: {e}", runtime.display());
+            crate::log_error!("spawn", "no se pudo lanzar {}: {e}", runtime_path.display());
             on_exit(SessionResult {
                 game_name,
                 clean_exit: false,
@@ -184,6 +194,8 @@ pub fn launch<E, F>(
 
     // Drain stdout on a background thread so the child pipe never fills.
     std::thread::spawn(move || {
+        let _reservations = reservations;
+        let mut reservations_confirmed = !require_reservations;
         let mut savestate_path = String::new();
         let mut failure = crate::launch_failure::Failure::default();
 
@@ -207,6 +219,10 @@ pub fn launch<E, F>(
 
         if let Some(stdout) = child.stdout.take() {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if line.trim() == "AYTHER_RESERVATION 1" {
+                    reservations_confirmed = true;
+                    continue;
+                }
                 // #600: el protocolo se DESERIALIZA. Antes se buscaban
                 // subcadenas —`contains("\"exit\"")` y un escaneo a mano del
                 // campo `savestate`— y eso confundía eventos con cualquier línea
@@ -215,6 +231,15 @@ pub fn launch<E, F>(
                 // simplemente no guardaba.
                 match crate::runtime_event::classify(&line) {
                     crate::runtime_event::ParsedLine::Event(e) => {
+                        if matches!(e, crate::runtime_event::RuntimeEvent::Ready { .. })
+                            && !reservations_confirmed
+                        {
+                            failure.reason = "runtime.reservation_unsupported".into();
+                            failure.explicit_error = true;
+                            failure.detail = "Este Runtime no confirmó los archivos preparados. Actualizá Runtime junto con Play CE.".into();
+                            let _ = child.kill();
+                            break;
+                        }
                         failure.observe(&e);
                         if let crate::runtime_event::RuntimeEvent::Exit { savestate } = &e {
                             savestate_path = savestate.clone();
@@ -239,6 +264,9 @@ pub fn launch<E, F>(
             .and_then(|reader| reader.join().ok())
             .unwrap_or_default();
         failure.finish(exit.as_ref().ok().and_then(|status| status.code()), &stderr);
+        if !reservations_confirmed {
+            failure.reservation_not_confirmed();
+        }
         let result = match exit {
             Ok(status) => {
                 let clean = status.success() && !failure.explicit_error;
@@ -318,6 +346,103 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ordinary_launch_preserves_the_existing_runtime_arguments() {
+        let request = LaunchRequest {
+            reservations: &[],
+            runtime: Path::new("runtime"),
+            core: Path::new("core.dll"),
+            rom: Path::new("game.rom"),
+            pack: Some(Path::new("pack.ay")),
+            trust_registry: Some(Path::new("trust.toml")),
+            game_name: "ordinary".into(),
+            cfg: None,
+            manifest: Some(Path::new("launch.toml")),
+            saves_dir: Path::new("saves"),
+            rom_crc32: "1234abcd",
+            input_map: Some(Path::new("input.toml")),
+            save: Some(Path::new("slot.state")),
+        };
+        let mut command = Command::new(request.runtime);
+        append_ordinary_runtime_arguments(&mut command, &request);
+        let arguments: Vec<_> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(
+            arguments,
+            [
+                "--core",
+                "core.dll",
+                "--rom",
+                "game.rom",
+                "--pack",
+                "pack.ay",
+                "--trust-registry",
+                "trust.toml",
+                "--manifest",
+                "launch.toml",
+                "--saves-dir",
+                "saves",
+                "--input-map",
+                "input.toml",
+                "--load-state",
+                "slot.state",
+                "--rom-crc32",
+                "1234abcd",
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "integration: requires AYTHER_RUNTIME_EXE built with reservations"]
+    fn runtime_accepts_play_revision_and_rejects_another_revision() {
+        let runtime = std::path::PathBuf::from(
+            std::env::var_os("AYTHER_RUNTIME_EXE").expect("AYTHER_RUNTIME_EXE"),
+        );
+        let d = tempfile::tempdir().unwrap();
+        let rom = d.path().join("rom.bin");
+        let pack = d.path().join("pack.ay");
+        std::fs::write(&rom, b"rom fixture").unwrap();
+        std::fs::write(&pack, b"pack fixture").unwrap();
+        let rom_guard = crate::file_revision::reserve(&rom).unwrap();
+        let pack_guard = crate::file_revision::reserve(&pack).unwrap();
+        let rom_revision = crate::file_revision::Revision::from_file(&rom_guard)
+            .unwrap()
+            .runtime_token();
+        let pack_revision = crate::file_revision::Revision::from_file(&pack_guard)
+            .unwrap()
+            .runtime_token();
+        let run = |revision: &str| {
+            std::process::Command::new(&runtime)
+                .arg("--core")
+                .arg(d.path().join("unused-core.dll"))
+                .arg("--rom")
+                .arg(&rom)
+                .arg("--pack")
+                .arg(&pack)
+                .arg("--rom-revision")
+                .arg(revision)
+                .arg("--pack-revision")
+                .arg(&pack_revision)
+                // Stop after the reservation handshake, before opening SDL or a core.
+                .arg("--trust-registry")
+                .arg(d.path().join("missing-registry.toml"))
+                .output()
+                .unwrap()
+        };
+        let accepted = run(&rom_revision);
+        assert!(
+            String::from_utf8_lossy(&accepted.stdout).contains("AYTHER_RESERVATION 1"),
+            "{}",
+            String::from_utf8_lossy(&accepted.stderr)
+        );
+        let rejected = run("wrong-revision");
+        assert!(!rejected.status.success());
+        assert!(!String::from_utf8_lossy(&rejected.stdout).contains("AYTHER_RESERVATION 1"));
+    }
+
+    #[test]
     #[ignore = "integration: requires the pinned distributed AYTHER_RUNTIME_EXE"]
     fn registry_is_forwarded_only_with_a_pack_and_startup_rejections_are_preserved() {
         let runtime = std::path::PathBuf::from(
@@ -338,6 +463,7 @@ mod tests {
             let (sender, receiver) = std::sync::mpsc::channel();
             launch(
                 LaunchRequest {
+                    reservations: &[],
                     runtime: &runtime,
                     core: Path::new("unused-core"),
                     rom: Path::new("unused-rom"),
@@ -394,6 +520,7 @@ mod tests {
             let (send_event, events) = std::sync::mpsc::channel();
             launch(
                 LaunchRequest {
+                    reservations: &[],
                     runtime: &runtime,
                     core: Path::new("unused-core"),
                     rom: Path::new("unused-rom"),

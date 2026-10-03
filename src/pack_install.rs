@@ -30,6 +30,53 @@
 use std::path::{Path, PathBuf};
 
 use crate::verifier::{self, Audit};
+use std::{
+    io::{Read, Write},
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+fn mutation_lock(packs_dir: &Path, id: &str) -> Result<std::fs::File, String> {
+    if let Some(repo) = crate::pack_cache::global() {
+        repo.require_writable()?;
+    }
+    validate_pack_id(id)?;
+    use sha2::{Digest, Sha256};
+    let directory = std::env::temp_dir().join("ayther-pack-locks");
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let key = crate::inventory::canonical(packs_dir)
+        .join(id)
+        .to_string_lossy()
+        .into_owned();
+    #[cfg(windows)]
+    let key = key.to_lowercase();
+    let name = format!("{:x}.lock", Sha256::digest(key.as_bytes()));
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(directory.join(name))
+        .map_err(|e| e.to_string())?;
+    file.try_lock()
+        .map_err(|_| "Pack en uso por otra operación".to_string())?;
+    Ok(file)
+}
+
+fn mutation_reservations(paths: &[PathBuf]) -> Result<Vec<std::fs::File>, String> {
+    let mut reservations = Vec::new();
+    for path in paths {
+        match crate::file_revision::reserve_for_mutation(path) {
+            Ok(file) => reservations.push(file),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!(
+                    "Pack en uso o no disponible. Cerrá la partida antes de modificarlo: {error}"
+                ));
+            }
+        }
+    }
+    Ok(reservations)
+}
 
 /// Portable file identifier (at most 128 bytes), including ordinary pack stems
 /// with internal spaces or dots. No leading/trailing dots or spaces.
@@ -144,6 +191,36 @@ pub fn has_previous(packs_dir: &Path, pack_id: &str) -> bool {
 /// después de instalarlo. Mover un archivo que el usuario no puso donde
 /// nosotros queremos es una sorpresa, no una optimización.
 pub fn install_local(packs_dir: &Path, pack_id: &str, src: &Path) -> InstallResult {
+    install_local_progress(
+        packs_dir,
+        pack_id,
+        src,
+        &AtomicBool::new(false),
+        &mut |_, _, _| {},
+    )
+}
+
+pub fn install_local_progress(
+    packs_dir: &Path,
+    pack_id: &str,
+    src: &Path,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(&str, u64, u64),
+) -> InstallResult {
+    if let Err(error) = validate_paths(packs_dir, pack_id) {
+        return InstallResult::Invalid(error);
+    }
+    let _mutation = match mutation_lock(packs_dir, pack_id) {
+        Ok(lock) => lock,
+        Err(error) => return InstallResult::Io(error),
+    };
+    let _reserved = match mutation_reservations(&[
+        installed_path(packs_dir, pack_id),
+        previous_path(packs_dir, pack_id),
+    ]) {
+        Ok(files) => files,
+        Err(error) => return InstallResult::Io(error),
+    };
     if let Err(error) = validate_paths(packs_dir, pack_id) {
         return InstallResult::Invalid(error);
     }
@@ -153,16 +230,72 @@ pub fn install_local(packs_dir: &Path, pack_id: &str, src: &Path) -> InstallResu
     let staging = staging_path(packs_dir, pack_id);
     // Un staging viejo de un intento anterior no se hereda.
     let _ = std::fs::remove_file(&staging);
-    if let Err(e) = std::fs::copy(src, &staging) {
+    if let Err(e) = (|| -> std::io::Result<()> {
+        let mut source = crate::file_revision::reserve(src)?;
+        let revision = crate::file_revision::Revision::from_file(&source)?;
+        let _permit =
+            crate::io_budget::acquire(&revision.identity, cancel).map_err(std::io::Error::other)?;
+        let total = source.metadata()?.len();
+        let mut destination = std::fs::File::create(&staging)?;
+        let mut bytes = vec![0; 1024 * 1024];
+        let mut done = 0;
+        progress("Copiando pack…", 0, total);
+        loop {
+            if cancel.load(Ordering::Acquire) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Interrupted,
+                    "Instalación cancelada",
+                ));
+            }
+            let count = source.read(&mut bytes)?;
+            if count == 0 {
+                break;
+            }
+            destination.write_all(&bytes[..count])?;
+            done += count as u64;
+            progress("Copiando pack…", done, total);
+        }
+        destination.sync_all()
+    })() {
+        let _ = std::fs::remove_file(&staging);
         return InstallResult::Io(e.to_string());
     }
-    promote(packs_dir, pack_id)
+    promote_locked(packs_dir, pack_id, cancel, progress)
 }
 
 /// Verifica lo que haya en staging y, si vale, lo pone en su lugar
 /// conservando la versión anterior. El paso que la descarga del Hub tiene que
 /// llamar DESPUÉS de escribir `<id>.ay.new` — nunca sobre el pack instalado.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn promote(packs_dir: &Path, pack_id: &str) -> InstallResult {
+    if let Err(error) = validate_paths(packs_dir, pack_id) {
+        return InstallResult::Invalid(error);
+    }
+    let _mutation = match mutation_lock(packs_dir, pack_id) {
+        Ok(lock) => lock,
+        Err(error) => return InstallResult::Io(error),
+    };
+    let _reserved = match mutation_reservations(&[
+        installed_path(packs_dir, pack_id),
+        previous_path(packs_dir, pack_id),
+    ]) {
+        Ok(files) => files,
+        Err(error) => return InstallResult::Io(error),
+    };
+    promote_locked(
+        packs_dir,
+        pack_id,
+        &AtomicBool::new(false),
+        &mut |_, _, _| {},
+    )
+}
+
+fn promote_locked(
+    packs_dir: &Path,
+    pack_id: &str,
+    cancel: &AtomicBool,
+    progress: &mut dyn FnMut(&str, u64, u64),
+) -> InstallResult {
     if let Err(error) = validate_paths(packs_dir, pack_id) {
         return InstallResult::Invalid(error);
     }
@@ -177,7 +310,36 @@ pub fn promote(packs_dir: &Path, pack_id: &str) -> InstallResult {
     // pack del Hub llega con el sello del servicio y ése decide, así que la
     // auditoría por entrada es redundante. Acá no hay sello — la auditoría es
     // lo único que hay, así que se hace antes de decir «instalado».
-    let audit = verifier::audit(&staging);
+    let reservation = match crate::file_revision::reserve_for_promotion(&staging) {
+        Ok(file) => file,
+        Err(e) => return InstallResult::Io(e.to_string()),
+    };
+    let before = match crate::file_revision::Revision::from_file(&reservation) {
+        Ok(r) => r,
+        Err(e) => return InstallResult::Io(e.to_string()),
+    };
+    let snapshot = if let Some(repo) = crate::pack_cache::global() {
+        match repo.inspect(&staging, cancel, &mut |done, total| {
+            progress("Comprobando pack…", done, total)
+        }) {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => return InstallResult::Io(error),
+        }
+    } else {
+        None
+    };
+    let audit = match &snapshot {
+        Some(snapshot) => snapshot
+            .audit
+            .clone()
+            .unwrap_or(Audit::InvalidPack("Comprobación pendiente".into())),
+        None => match verifier::audit_with_progress(&staging, cancel, &mut |done, total| {
+            progress("Comprobando pack…", done, total)
+        }) {
+            Ok(audit) => audit,
+            Err(error) => return InstallResult::Io(error),
+        },
+    };
     if !audit.is_installable() {
         let _ = std::fs::remove_file(&staging);
         return match audit {
@@ -191,9 +353,19 @@ pub fn promote(packs_dir: &Path, pack_id: &str) -> InstallResult {
     // incompleto pasa la verificación de integridad sin problemas y después no
     // abre — instalarlo sería dejarle al jugador un archivo que descubre roto
     // recién al querer jugar.
-    {
-        let path = staging.to_string_lossy().to_string();
-        if let Err(e) = ayther_core::archive_vfs::AyArchive::open_verbose(&path) {
+    if snapshot.is_none() {
+        let metadata = ayther_core::pack_validate::read_metadata(&staging.to_string_lossy())
+            .map_err(|r| format!("{:?}", r.findings));
+        let parsed = metadata.and_then(|m| {
+            ayther_core::archive_vfs::AyArchive::catalog_metadata(
+                m.texts
+                    .get("manifest.toml")
+                    .map(String::as_bytes)
+                    .unwrap_or_default(),
+            )
+            .map_err(|e| format!("{e:?}"))
+        });
+        if let Err(e) = parsed {
             let _ = std::fs::remove_file(&staging);
             return InstallResult::Invalid(format!("{e:?}"));
         }
@@ -201,6 +373,21 @@ pub fn promote(packs_dir: &Path, pack_id: &str) -> InstallResult {
 
     let current = installed_path(packs_dir, pack_id);
     let previous = previous_path(packs_dir, pack_id);
+    if cancel.load(Ordering::Acquire) {
+        return InstallResult::Io("Instalación cancelada".into());
+    }
+    if let (Some(repo), Some(snapshot)) = (crate::pack_cache::global(), snapshot.as_ref()) {
+        let operation = crate::pack_cache::Promotion {
+            staging: staging.clone(),
+            previous: previous.clone(),
+            installed_before: crate::file_revision::Revision::observe(&current).ok(),
+            snapshot: (**snapshot).clone(),
+        };
+        if let Err(error) = repo.operation(&current, &operation) {
+            return InstallResult::Io(error);
+        }
+    }
+    progress("Finalizando…", 0, 0);
     let replaced = current.is_file();
     if replaced {
         // La generación anterior a la anterior se descarta acá y no antes: si
@@ -220,6 +407,28 @@ pub fn promote(packs_dir: &Path, pack_id: &str) -> InstallResult {
         }
         return InstallResult::Io(e.to_string());
     }
+    let after = match crate::file_revision::Revision::observe(&current) {
+        Ok(r) => r,
+        Err(e) => return InstallResult::Io(e.to_string()),
+    };
+    if before.identity != after.identity || before.bytes != after.bytes {
+        return InstallResult::Io(
+            "El archivo cambió durante la instalación. Se requiere recuperar la operación.".into(),
+        );
+    }
+    if let Some(repo) = crate::pack_cache::global()
+        && let Some(snapshot) = snapshot
+    {
+        let mut snapshot = (*snapshot).clone();
+        snapshot.revision = after;
+        if let Err(error) = repo
+            .publish(&current, snapshot)
+            .and_then(|_| repo.invalidate(&staging))
+            .and_then(|_| repo.finish_operation(&current))
+        {
+            return InstallResult::Io(format!("El pack quedó pendiente de recuperación: {error}"));
+        }
+    }
     InstallResult::Installed { replaced }
 }
 
@@ -227,7 +436,12 @@ pub fn promote(packs_dir: &Path, pack_id: &str) -> InstallResult {
 /// jugador que revierte para probar tiene que poder volver a adelantar, y un
 /// rollback que quema la versión nueva convierte una prueba en una decisión.
 pub fn rollback(packs_dir: &Path, pack_id: &str) -> Result<(), String> {
+    let _mutation = mutation_lock(packs_dir, pack_id)?;
     validate_paths(packs_dir, pack_id)?;
+    let _reserved = mutation_reservations(&[
+        installed_path(packs_dir, pack_id),
+        previous_path(packs_dir, pack_id),
+    ])?;
     let current = installed_path(packs_dir, pack_id);
     let previous = previous_path(packs_dir, pack_id);
     if !previous.is_file() {
@@ -282,6 +496,11 @@ pub enum UninstallResult {
 /// Remove an unreadable or incompatible pack as well. Managed installs include
 /// their previous version; external packs remove only the selected file.
 pub fn uninstall_path(packs_dir: &Path, path: &Path) -> UninstallResult {
+    if let Some(repo) = crate::pack_cache::global()
+        && let Err(error) = repo.require_writable()
+    {
+        return UninstallResult::Io(error);
+    }
     let extension = path
         .extension()
         .and_then(|s| s.to_str())
@@ -330,11 +549,24 @@ pub fn uninstall_path(packs_dir: &Path, path: &Path) -> UninstallResult {
 /// llevarse ninguna de las tres.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn uninstall(packs_dir: &Path, pack_id: &str) -> UninstallResult {
+    let _mutation = match mutation_lock(packs_dir, pack_id) {
+        Ok(lock) => lock,
+        Err(error) => return UninstallResult::Io(error),
+    };
     if let Err(error) = validate_paths(packs_dir, pack_id) {
         return UninstallResult::Io(error);
     }
     let current = installed_path(packs_dir, pack_id);
     let previous = previous_path(packs_dir, pack_id);
+    let _reserved = match mutation_reservations(&[
+        current.clone(),
+        previous.clone(),
+        staging_path(packs_dir, pack_id),
+        packs_dir.join(format!("{pack_id}.ay.part")),
+    ]) {
+        Ok(files) => files,
+        Err(error) => return UninstallResult::Io(error),
+    };
     let had_previous = previous.is_file();
     if !current.is_file() && !had_previous {
         return UninstallResult::NotInstalled;

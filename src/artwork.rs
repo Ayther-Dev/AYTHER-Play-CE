@@ -13,39 +13,47 @@ use slint::{ComponentHandle, Image, Model, Rgba8Pixel, SharedPixelBuffer};
 
 use crate::{AppWindow, log_info};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct Stamp {
     bytes: u64,
     modified: SystemTime,
+    identity: String,
+    change_token: Option<i64>,
 }
 
 impl Stamp {
     fn read(path: &Path) -> Option<Self> {
-        let meta = path.metadata().ok()?;
+        let revision = crate::file_revision::Revision::observe(path).ok()?;
         Some(Self {
-            bytes: meta.len(),
-            modified: meta.modified().ok()?,
+            bytes: revision.bytes,
+            modified: SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_nanos(revision.modified_ns),
+            identity: revision.identity,
+            change_token: revision.change_token,
         })
     }
 }
 
 struct Entry {
-    stamp: Stamp,
+    generation: u64,
+    used: u64,
+    bytes: usize,
     image: Image,
 }
 
 struct Job {
     path: PathBuf,
-    stamp: Stamp,
+    generation: u64,
 }
 
 #[derive(Default)]
 struct Cache {
     entries: HashMap<PathBuf, Entry>,
-    sender: Option<mpsc::Sender<Job>>,
+    sender: Option<mpsc::SyncSender<Job>>,
     window: Option<slint::Weak<AppWindow>>,
     done: i32,
     total: i32,
+    clock: u64,
 }
 
 thread_local! {
@@ -53,16 +61,22 @@ thread_local! {
 }
 
 pub fn init(app: &AppWindow, cache_dir: PathBuf) {
-    let (sender, jobs) = mpsc::channel::<Job>();
+    let (sender, jobs) = mpsc::sync_channel::<Job>(128);
     let weak = app.as_weak();
     CACHE.with_borrow_mut(|cache| {
         cache.sender = Some(sender);
         cache.window = Some(weak.clone());
     });
     std::thread::spawn(move || {
+        trim_disk_cache(&cache_dir, 1024 * 1024 * 1024);
+        let mut completed = 0usize;
         for job in jobs {
             let started = Instant::now();
             let pixels = decode(&job.path, &cache_dir);
+            completed += 1;
+            if completed.is_multiple_of(64) {
+                trim_disk_cache(&cache_dir, 1024 * 1024 * 1024);
+            }
             log_info!(
                 "artwork",
                 "carátula preparada en {} ms",
@@ -75,16 +89,38 @@ pub fn init(app: &AppWindow, cache_dir: PathBuf) {
                     cache.done += 1;
                     app.set_artwork_done(cache.done);
                     let entry = cache.entries.get_mut(&job.path)?;
-                    if entry.stamp != job.stamp {
+                    if entry.generation != job.generation {
                         return None;
                     }
+                    entry.bytes = pixels
+                        .as_ref()
+                        .map_or(0, |p| p.width() as usize * p.height() as usize * 4);
                     entry.image = pixels.map(Image::from_rgba8).unwrap_or_default();
-                    Some(entry.image.clone())
+                    let result = entry.image.clone();
+                    while cache.entries.values().map(|e| e.bytes).sum::<usize>() > 128 * 1024 * 1024
+                    {
+                        let victim = cache
+                            .entries
+                            .iter()
+                            .filter(|(p, _)| *p != &job.path)
+                            .min_by_key(|(_, e)| e.used)
+                            .map(|(p, _)| p.clone());
+                        if let Some(path) = victim {
+                            cache.entries.remove(&path);
+                        } else {
+                            break;
+                        }
+                    }
+                    Some(result)
                 });
                 let Some(image) = image else { return };
                 let path = job.path.to_string_lossy();
                 // Update just this image: keep selection, filters and metadata intact.
                 for model in [app.get_games(), app.get_recent()] {
+                    if let Some(lazy) = model.as_any().downcast_ref::<crate::LazyGameModel>() {
+                        lazy.cover_changed(&path);
+                        continue;
+                    }
                     for index in 0..model.row_count() {
                         if let Some(mut row) = model.row_data(index)
                             && row.cover_path.as_str() == path
@@ -109,33 +145,86 @@ pub fn init(app: &AppWindow, cache_dir: PathBuf) {
     });
 }
 
+pub fn invalidate(paths: &[PathBuf]) {
+    CACHE.with_borrow_mut(|cache| {
+        for path in paths {
+            cache.entries.remove(path);
+        }
+    });
+}
+
+fn trim_disk_cache(directory: &Path, budget: u64) {
+    let Ok(files) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let mut generated: Vec<_> = files
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_stem()?.to_str()?;
+            if path.extension()?.to_str()? != "png"
+                || name.len() != 64
+                || !name.bytes().all(|c| c.is_ascii_hexdigit())
+            {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some((metadata.modified().ok()?, metadata.len(), path))
+        })
+        .collect();
+    let mut total: u64 = generated.iter().map(|(_, size, _)| size).sum();
+    generated.sort_by_key(|(modified, _, _)| *modified);
+    for (_, size, path) in generated {
+        if total <= budget {
+            break;
+        }
+        if std::fs::remove_file(path).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
 /// Return immediately, using a placeholder until the worker delivers the cover.
 pub fn load(path: &Path) -> Image {
-    let Some(stamp) = Stamp::read(path) else {
-        return Image::default();
-    };
     CACHE.with_borrow_mut(|cache| {
-        if let Some(entry) = cache.entries.get(path)
-            && entry.stamp == stamp
-        {
+        cache.clock = cache.clock.wrapping_add(1);
+        if let Some(entry) = cache.entries.get_mut(path) {
+            entry.used = cache.clock;
             return entry.image.clone();
         }
         let Some(sender) = &cache.sender else {
             return Image::default();
         };
         if sender
-            .send(Job {
+            .try_send(Job {
                 path: path.into(),
-                stamp,
+                generation: cache.clock,
             })
             .is_err()
         {
             return Image::default();
         }
+        while cache.entries.len() >= 1024 {
+            let victim = cache
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.used)
+                .map(|(path, _)| path.clone());
+            if let Some(victim) = victim {
+                cache.entries.remove(&victim);
+            } else {
+                break;
+            }
+        }
         cache.entries.insert(
             path.into(),
             Entry {
-                stamp,
+                generation: cache.clock,
+                used: cache.clock,
+                bytes: 0,
                 image: Image::default(),
             },
         );
@@ -158,6 +247,19 @@ pub(crate) fn decode(path: &Path, cache_dir: &Path) -> Option<SharedPixelBuffer<
     hash.update(b"play-cover-1024-v1");
     hash.update(path.as_os_str().as_encoded_bytes());
     hash.update(stamp.bytes.to_le_bytes());
+    hash.update(stamp.identity.as_bytes());
+    // Weak attributes do not authorize a cross-session thumbnail cache hit.
+    hash.update(
+        stamp
+            .change_token
+            .unwrap_or_else(|| {
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos() as i64
+            })
+            .to_le_bytes(),
+    );
     hash.update(
         stamp
             .modified
@@ -168,6 +270,9 @@ pub(crate) fn decode(path: &Path, cache_dir: &Path) -> Option<SharedPixelBuffer<
     );
     let cached = cache_dir.join(format!("{:x}.png", hash.finalize()));
     if let Ok(image) = image::open(&cached) {
+        if let Ok(file) = std::fs::OpenOptions::new().write(true).open(&cached) {
+            let _ = file.set_modified(SystemTime::now());
+        }
         let rgba = image.into_rgba8();
         return Some(SharedPixelBuffer::clone_from_slice(
             rgba.as_raw(),
@@ -175,12 +280,14 @@ pub(crate) fn decode(path: &Path, cache_dir: &Path) -> Option<SharedPixelBuffer<
             rgba.height(),
         ));
     }
-    let image = image::ImageReader::open(path)
+    let mut reader = image::ImageReader::open(path)
         .ok()?
         .with_guessed_format()
-        .ok()?
-        .decode()
         .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
     // Enough for the details view at 2x scale, without retaining giant source images.
     let rgba = if image.width() > 1024 || image.height() > 1024 {
         image.thumbnail(1024, 1024).into_rgba8()

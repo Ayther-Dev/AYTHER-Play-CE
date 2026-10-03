@@ -39,7 +39,7 @@ use std::path::Path;
 /// **No hay una variante «auténtico».** Ver el comentario del módulo: este
 /// binario no tiene con qué afirmarlo, y un tipo que ofrezca decirlo invita a
 /// que alguien lo devuelva.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Audit {
     /// Cada entrada cierra con lo que `integrity.toml` declara: tamaño y hash.
     /// El pack está completo y nadie lo tocó desde que se horneó.
@@ -93,63 +93,129 @@ struct IntegrityEntry {
 }
 
 /// Audita el `.ay` de `path`. No lo abre para jugar: lee el ZIP y compara.
+#[cfg(test)]
 pub fn audit(path: &Path) -> Audit {
-    match audit_inner(path) {
+    match audit_with_progress(
+        path,
+        &std::sync::atomic::AtomicBool::new(false),
+        &mut |_, _| {},
+    ) {
         Ok(a) => a,
         Err(e) => Audit::InvalidPack(e),
     }
 }
 
-fn audit_inner(path: &Path) -> Result<Audit, String> {
+pub fn audit_with_progress(
+    path: &Path,
+    cancel: &std::sync::atomic::AtomicBool,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<Audit, String> {
+    use ayther_core::pack_security::{MAX_ENTRY_BYTES, MAX_ENTRY_COUNT, MAX_METADATA_BYTES};
+    use std::sync::atomic::Ordering;
+    crate::cache_metrics::PACK_AUDIT_ATTEMPTS.fetch_add(1, Ordering::Relaxed);
+    crate::cache_metrics::PACK_CONTENT_OPENS.fetch_add(1, Ordering::Relaxed);
     let file = std::fs::File::open(path).map_err(|e| format!("no se pudo abrir: {e}"))?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("no es un ZIP: {e}"))?;
-
-    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut zip = match zip::ZipArchive::new(file) {
+        Ok(zip) => zip,
+        Err(zip::result::ZipError::Io(error)) => {
+            return Err(format!("No se pudo leer el pack: {error}"));
+        }
+        Err(error) => return Ok(Audit::InvalidPack(format!("no es un ZIP: {error}"))),
+    };
+    if zip.len() > MAX_ENTRY_COUNT {
+        return Err("El pack excede el límite de entradas".into());
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Comprobación cancelada".into());
+    }
+    let mut index = String::new();
+    match zip.by_name("integrity.toml") {
+        Ok(mut entry) => {
+            if entry.size() > MAX_METADATA_BYTES {
+                return Err("El índice de integridad es demasiado grande".into());
+            }
+            entry
+                .read_to_string(&mut index)
+                .map_err(|e| format!("No se pudo leer el índice: {e}"))?;
+        }
+        Err(zip::result::ZipError::FileNotFound) => return Ok(Audit::MissingIndex),
+        Err(e) => return Err(e.to_string()),
+    }
+    let parsed: IntegrityToml =
+        toml::from_str(&index).map_err(|e| format!("integrity.toml mal formado: {e}"))?;
+    if parsed.entry.len() > MAX_ENTRY_COUNT {
+        return Err("El índice excede el límite de entradas".into());
+    }
+    let mut listed_entries = BTreeMap::new();
+    for entry in &parsed.entry {
+        ayther_core::pack_security::validate_canonical_logical_path(&entry.path)
+            .map_err(|e| e.to_string())?;
+        if matches!(entry.path.as_str(), "integrity.toml" | "signature.bin")
+            || listed_entries.insert(entry.path.as_str(), entry).is_some()
+        {
+            return Err("El índice repite una entrada o incluye una ruta reservada".into());
+        }
+    }
+    let total = parsed
+        .entry
+        .iter()
+        .map(|e| e.size)
+        .try_fold(0u64, |sum, n| sum.checked_add(n))
+        .ok_or("Tamaño de índice inválido")?;
+    let mut names = std::collections::HashSet::new();
+    let mut visited_entries = 0usize;
+    let mut done = 0u64;
+    let mut buffer = vec![0u8; 1024 * 1024];
+    progress(0, total);
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| format!("entrada {i}: {e}"))?;
         if entry.is_dir() {
             continue;
         }
         let name = entry.name().to_string();
-        let mut data = Vec::with_capacity(entry.size() as usize);
-        entry
-            .read_to_end(&mut data)
-            .map_err(|e| format!("leyendo {name}: {e}"))?;
-        files.insert(name, data);
-    }
-
-    let Some(index) = files.get("integrity.toml") else {
-        return Ok(Audit::MissingIndex);
-    };
-
-    let parsed: IntegrityToml = toml::from_str(
-        std::str::from_utf8(index).map_err(|_| "integrity.toml no es UTF-8".to_string())?,
-    )
-    .map_err(|e| format!("integrity.toml mal formado: {e}"))?;
-
-    let listed_entries: BTreeMap<&str, &IntegrityEntry> =
-        parsed.entry.iter().map(|e| (e.path.as_str(), e)).collect();
-
-    // Las dos direcciones, y las dos importan. Que cada archivo presente esté
-    // listado y cierre atrapa lo agregado y lo modificado; que cada entrada
-    // listada esté presente atrapa lo que falta. Con una sola, un pack al que
-    // le sacaron un asset pasaría por íntegro.
-    let mut visited_entries = 0usize;
-    for (name, data) in &files {
+        if !names.insert(name.to_ascii_lowercase()) {
+            return Err(format!("Entrada repetida: {name}"));
+        }
         if name == "integrity.toml" || name == "signature.bin" {
             continue;
         }
         let Some(e) = listed_entries.get(name.as_str()) else {
             return Ok(Audit::Mismatch(format!("«{name}» no está en el índice")));
         };
-        if e.size != data.len() as u64 {
+        if e.size != entry.size() || e.size > MAX_ENTRY_BYTES {
             return Ok(Audit::Mismatch(format!(
                 "«{name}» mide {} y el índice dice {}",
-                data.len(),
+                entry.size(),
                 e.size
             )));
         }
-        let hash = format!("{:x}", Sha256::digest(data));
+        let mut hasher = Sha256::new();
+        let mut entry_bytes = 0u64;
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("Comprobación cancelada".into());
+            }
+            let n = entry
+                .read(&mut buffer)
+                .map_err(|e| format!("leyendo {name}: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            entry_bytes += n as u64;
+            if entry_bytes > e.size {
+                return Ok(Audit::Mismatch(format!(
+                    "«{name}» excede su tamaño declarado"
+                )));
+            }
+            hasher.update(&buffer[..n]);
+            done += n as u64;
+            crate::cache_metrics::PACK_AUDIT_BYTES.fetch_add(n as u64, Ordering::Relaxed);
+            progress(done, total);
+        }
+        if entry_bytes != e.size {
+            return Ok(Audit::Mismatch(format!("«{name}» está incompleto")));
+        }
+        let hash = format!("{:x}", hasher.finalize());
         if !hash.eq_ignore_ascii_case(&e.sha256) {
             return Ok(Audit::Mismatch(format!("«{name}» no coincide con su hash")));
         }
@@ -162,6 +228,7 @@ fn audit_inner(path: &Path) -> Result<Audit, String> {
         )));
     }
 
+    crate::cache_metrics::PACK_AUDIT_SUCCESSES.fetch_add(1, Ordering::Relaxed);
     Ok(Audit::Complete)
 }
 
