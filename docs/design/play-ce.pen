@@ -2690,6 +2690,117 @@
                       ]
                     }
                   ]
+                },
+                {
+                  "type": "frame",
+                  "id": "Cqwao",
+                  "name": "cell VolumeControl",
+                  "width": "fill_container",
+                  "height": 79,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "kS5eo",
+                      "name": "cap",
+                      "fill": "$--text-dim",
+                      "content": "VolumeControl 360×48",
+                      "fontFamily": "$--font-mono",
+                      "fontSize": 18,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "I5GINs",
+                      "name": "VolumeControl",
+                      "reusable": true,
+                      "width": "fill_container",
+                      "height": 48,
+                      "gap": 12,
+                      "padding": [
+                        0,
+                        16
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "AxniA",
+                          "name": "Label",
+                          "fill": "#ffffff",
+                          "content": "Volumen",
+                          "fontFamily": "Inter",
+                          "fontSize": 16,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "icon",
+                          "id": "lbL93",
+                          "name": "Volume icon",
+                          "width": 24,
+                          "height": 24,
+                          "icon": "volume-2",
+                          "library": "lucide",
+                          "fill": "$--text-normal"
+                        },
+                        {
+                          "type": "frame",
+                          "id": "h7XEz",
+                          "name": "Volume track",
+                          "width": "fill_container",
+                          "height": 24,
+                          "justifyContent": "center",
+                          "alignItems": "center",
+                          "children": [
+                            {
+                              "type": "frame",
+                              "id": "EBQI5",
+                              "name": "Track base",
+                              "width": "fill_container",
+                              "height": 3,
+                              "fill": "$--border",
+                              "children": [
+                                {
+                                  "type": "rectangle",
+                                  "cornerRadius": 2,
+                                  "id": "GcHYD",
+                                  "name": "Track level",
+                                  "fill": "$--accent",
+                                  "width": 188,
+                                  "height": 4
+                                },
+                                {
+                                  "type": "ellipse",
+                                  "id": "fwSs3",
+                                  "layoutPosition": "absolute",
+                                  "x": 183,
+                                  "y": -5,
+                                  "name": "Volume thumb",
+                                  "fill": "$--accent",
+                                  "width": 14,
+                                  "height": 14,
+                                  "stroke": "$--bg-input",
+                                  "strokeWidth": 2,
+                                  "strokeAlignment": "outer"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "text",
+                          "id": "HUwsx",
+                          "name": "Volume value",
+                          "fill": "$--text-bright",
+                          "content": "75%",
+                          "fontFamily": "$--font-mono",
+                          "fontSize": 16,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
                 }
               ]
             }

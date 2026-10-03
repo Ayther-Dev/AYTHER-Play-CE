@@ -79,15 +79,17 @@ only from sources you trust.
 
 ## AYTHER dependencies
 
-Play uses [AYTHER Engine v0.1.0-rc.9](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.9),
+Actualización del 2026-10-02: Play CE utiliza Runtime beta.8 publicado, construido con Engine rc.13. El lock fija la distribución verificada y su procedencia.
+
+Play uses [AYTHER Engine v0.1.0-rc.13](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.13),
 with the documented offline-reader patch in [`vendor/ayther_core/CE-PATCH.md`](vendor/ayther_core/CE-PATCH.md).
 No sibling Engine checkout is required.
 
-Play targets [Runtime v0.1.0-beta.5](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.5),
-published on 2026-09-15. The Windows AMD64 distribution and source commit
-`428249701c7c9404fbb4a1308ee1cc3d46a3d32d` are pinned with the archive SHA-256 in
-[`tools/runtime-lock.json`](tools/runtime-lock.json). Real probe and invalid-map
-integration checks passed against that distributed binary.
+Play utiliza [Runtime v0.1.0-beta.8](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.8),
+publicado el 2026-10-02. La distribución Windows AMD64 y el commit
+`94bd583503dcaf76cb553f31d240e879e0cc49e4` están fijados junto con el SHA-256 del ZIP en
+[`tools/runtime-lock.json`](tools/runtime-lock.json). Las pruebas reales de reserva,
+lanzamiento y detección de core pasaron contra ese binario distribuido.
 
 Use Rust **1.95.0** (selected by `rust-toolchain.toml`). On Windows install Visual
 Studio 2022 C++ Build Tools and Windows SDK, plus Git and PowerShell 7. From this
