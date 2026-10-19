@@ -213,11 +213,15 @@ impl Config {
     /// FUERA de proceso —es lo que impide que una DLL ajena se lleve puesto a
     /// Play (#589)—, así que sin runtime no hay veredicto posible.
     ///
-    /// El orden es el de la autoridad: lo que el jugador configuró, si existe;
-    /// después `AYTHER_RUNTIME`, que es cómo se apunta a un build sin tocar la
-    /// configuración; después la instalación; y recién ahí el árbol de
-    /// desarrollo. Si no aparece ninguno se devuelve el configurado igual, para
-    /// que el error NOMBRE lo que se buscaba en vez de un camino inventado.
+    /// El orden es el de la autoridad: `AYTHER_RUNTIME`, que es cómo se apunta
+    /// a un build sin tocar la configuración; después el Runtime que viaja con
+    /// Play en su carpeta; después lo configurado, si existe; y recién ahí el
+    /// árbol de desarrollo. El adyacente le gana a lo configurado porque es el
+    /// que se distribuyó y validó con ESTE Play: una ruta guardada por una
+    /// versión anterior seguía existiendo y lanzaba un Runtime viejo (beta.8,
+    /// sin las correcciones de la spec 002) aunque la carpeta trajera beta.11.
+    /// Si no aparece ninguno se devuelve el configurado igual, para que el
+    /// error NOMBRE lo que se buscaba en vez de un camino inventado.
     pub fn runtime(&self) -> PathBuf {
         let exe_dir = std::env::current_exe()
             .ok()
@@ -244,9 +248,6 @@ impl Config {
     /// depende de dónde está el `.exe` que corre, que en un test es el binario
     /// del test.
     pub fn runtime_at(configured: &Path, exe_dir: &Path, env: Option<&Path>) -> PathBuf {
-        if configured.is_file() {
-            return configured.to_path_buf();
-        }
         if let Some(e) = env
             && e.is_file()
         {
@@ -256,6 +257,9 @@ impl Config {
         let adjacent_runtime = exe_dir.join(name);
         if adjacent_runtime.is_file() {
             return adjacent_runtime;
+        }
+        if configured.is_file() {
+            return configured.to_path_buf();
         }
         // El árbol de desarrollo: `target/debug/` está a dos o tres niveles de
         // la raíz del repositorio, y el runtime lo deja CMake en `build/bin/`.
@@ -507,11 +511,11 @@ mod tests {
         assert_eq!(Config::runtime_at(&configured, &exe_dir, None), real);
     }
 
-    /// Y la cascada respeta quién manda: lo configurado, después la variable de
-    /// entorno, y recién ahí lo que se encuentre. Al revés, un build viejo en
+    /// Y la cascada respeta quién manda: la variable de entorno, después lo
+    /// configurado, y recién ahí el árbol. Al revés, un build viejo en
     /// `build/bin/` le ganaría al runtime que el jugador eligió.
     #[test]
-    fn the_configured_value_rules_then_the_variable() {
+    fn the_variable_rules_then_the_configured_value() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let exe_dir = root.join("target").join("debug");
@@ -529,11 +533,42 @@ mod tests {
 
         let from_env = root.join("el-del-entorno.exe");
         std::fs::write(&from_env, b"entorno").unwrap();
+        assert_eq!(
+            Config::runtime_at(&selected, &exe_dir, Some(&from_env)),
+            from_env,
+            "la variable de entorno apunta a un build sin tocar la configuración"
+        );
         let missing = root.join("no-esta.exe");
         assert_eq!(
             Config::runtime_at(&missing, &exe_dir, Some(&from_env)),
             from_env,
             "la variable de entorno tiene que ganarle al árbol"
+        );
+    }
+
+    /// El Runtime que viaja con Play le gana a una ruta guardada que todavía
+    /// existe: la dejó una versión anterior y lanzaría un Runtime viejo.
+    #[test]
+    fn the_adjacent_runtime_wins_over_a_stale_configured_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let exe_dir = root.join("play");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let adjacent = exe_dir.join(Config::runtime_executable_name());
+        std::fs::write(&adjacent, b"beta.11").unwrap();
+        let stale = root
+            .join("runtime-viejo")
+            .join(Config::runtime_executable_name());
+        std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        std::fs::write(&stale, b"beta.8").unwrap();
+
+        assert_eq!(Config::runtime_at(&stale, &exe_dir, None), adjacent);
+        let from_env = root.join("el-del-entorno.exe");
+        std::fs::write(&from_env, b"entorno").unwrap();
+        assert_eq!(
+            Config::runtime_at(&stale, &exe_dir, Some(&from_env)),
+            from_env,
+            "la variable de entorno sigue mandando sobre el adyacente"
         );
     }
 

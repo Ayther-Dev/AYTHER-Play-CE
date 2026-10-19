@@ -411,7 +411,10 @@ fn promote_locked(
         Ok(r) => r,
         Err(e) => return InstallResult::Io(e.to_string()),
     };
-    if before.identity != after.identity || before.bytes != after.bytes {
+    // `same_file`, no la identidad completa: el rename a `<id>.ay` hereda la
+    // fecha de creación del pack anterior (tunneling de NTFS) y la identidad
+    // cambia aunque el archivo sea el mismo.
+    if !before.same_file(&after) || before.bytes != after.bytes {
         return InstallResult::Io(
             "El archivo cambió durante la instalación. Se requiere recuperar la operación.".into(),
         );
@@ -878,6 +881,46 @@ mod tests {
 
         // El original que el jugador tenía en el disco no se movió.
         assert!(v1.is_file() && v2.is_file(), "install COPIA, no mueve");
+    }
+
+    /// EL DEFECTO que esto cierra: actualizar un pack instalado minutos antes
+    /// fallaba con «El archivo cambió durante la instalación». NTFS conserva 15 s
+    /// la fecha de creación de un nombre que se quita del directorio y se la da
+    /// al archivo que toma ese nombre (file-system tunneling): el `.new` renombrado
+    /// a `<id>.ay` heredaba la fecha del pack viejo, y la identidad observada
+    /// antes y después del rename ya no coincidía. `install_update_revert` no lo
+    /// veía porque su `.new` se creaba dentro de esos 15 s y heredaba la misma
+    /// fecha por el mismo mecanismo.
+    #[cfg(windows)]
+    #[test]
+    fn an_update_staged_minutes_later_is_not_a_change_during_install() {
+        use std::os::windows::fs::FileTimesExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let packs = tmp.path().join("packs");
+        let v1 = valid_pack(tmp.path(), "v1.ay", "v1");
+        let v2 = valid_pack(tmp.path(), "v2.ay", "v2");
+        assert_eq!(
+            install_local(&packs, "ga", &v1),
+            InstallResult::Installed { replaced: false }
+        );
+        // El Hub escribe `<id>.ay.new` y después llama a `promote`; el archivo
+        // nace minutos después del pack instalado.
+        let staging = staging_path(&packs, "ga");
+        std::fs::copy(&v2, &staging).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(600);
+        std::fs::File::options()
+            .write(true)
+            .open(&staging)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_created(later))
+            .unwrap();
+
+        assert_eq!(
+            promote(&packs, "ga"),
+            InstallResult::Installed { replaced: true }
+        );
+        assert_eq!(mark_of(&installed_path(&packs, "ga")), "v2");
+        assert_eq!(mark_of(&previous_path(&packs, "ga")), "v1");
     }
 
     /// EL DEFECTO que esto cierra: el flujo viejo bajaba encima del pack

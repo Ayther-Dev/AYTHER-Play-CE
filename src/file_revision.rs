@@ -46,6 +46,22 @@ impl Revision {
         self == other && self.change_token.is_some()
     }
 
+    /// The same file on disk, whatever its name is now. Volume and file index
+    /// identify it; the creation time that the identity also carries is left
+    /// out because NTFS tunneling hands a file renamed onto a name freed in the
+    /// last 15 s the creation time of the file that had that name — exactly
+    /// what promoting `<id>.ay.new` over `<id>.ay` does.
+    pub fn same_file(&self, other: &Self) -> bool {
+        let stable = |identity: &str| {
+            let mut parts = identity.splitn(3, ':');
+            (
+                parts.next().map(str::to_owned),
+                parts.next().map(str::to_owned),
+            )
+        };
+        stable(&self.identity) == stable(&other.identity)
+    }
+
     pub fn runtime_token(&self) -> String {
         format!(
             "{}|{}|{}|{}",
@@ -128,6 +144,11 @@ fn native_identity(file: &File, _: &std::fs::Metadata) -> io::Result<(String, Op
         if GetFileInformationByHandle(handle, &mut info) == 0 {
             return Err(io::Error::last_os_error());
         }
+        // Contract with the Runtime (--rom-revision/--pack-revision): it builds
+        // the same volume:index:creation token on its side and rejects the
+        // launch when they differ, so this format cannot change on its own.
+        // Comparisons that must survive a rename use `same_file`, which leaves
+        // the creation time out.
         let identity = format!(
             "{:08x}:{:08x}{:08x}:{:08x}{:08x}",
             info.dwVolumeSerialNumber,
@@ -214,6 +235,65 @@ mod tests {
         assert!(std::fs::remove_file(&p).is_err());
         drop(guard);
         std::fs::write(&p, b"changed").unwrap();
+    }
+
+    /// NTFS tunneling: a name removed from a directory keeps its creation time
+    /// for 15 s and hands it to the next file that takes that name. Updating a
+    /// pack does exactly that (`rename(current, previous)` followed by
+    /// `rename(staging, current)`), so an identity built on the creation time
+    /// reports "changed during install" on every update made minutes after the
+    /// previous one.
+    #[cfg(windows)]
+    #[test]
+    fn identity_survives_a_rename_onto_a_recently_freed_name() {
+        use std::os::windows::fs::FileTimesExt;
+        let d = tempfile::tempdir().unwrap();
+        let installed = d.path().join("pack.ay");
+        let staging = d.path().join("pack.ay.new");
+        std::fs::write(&installed, b"old").unwrap();
+        std::fs::write(&staging, b"new").unwrap();
+        // A staging copy made minutes after the installed pack, like a real update.
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(600);
+        File::options()
+            .write(true)
+            .open(&staging)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_created(later))
+            .unwrap();
+        let before = Revision::observe(&staging).unwrap();
+        std::fs::rename(&installed, d.path().join("pack.ay.prev")).unwrap();
+        std::fs::rename(&staging, &installed).unwrap();
+        let after = Revision::observe(&installed).unwrap();
+        assert!(
+            before.same_file(&after),
+            "{} vs {}",
+            before.identity,
+            after.identity
+        );
+        assert_eq!(before.bytes, after.bytes);
+        // The Runtime token keeps the creation time: that part is its contract.
+        assert_eq!(after.identity.split(':').count(), 3);
+        assert_ne!(
+            before.identity, after.identity,
+            "the tunneled creation time is why same_file exists"
+        );
+    }
+
+    #[test]
+    fn same_file_ignores_only_the_creation_time() {
+        let a = Revision {
+            bytes: 1,
+            modified_ns: 1,
+            identity: "vol:index:created-a".into(),
+            change_token: None,
+        };
+        let mut b = a.clone();
+        b.identity = "vol:index:created-b".into();
+        assert!(a.same_file(&b));
+        b.identity = "vol:other:created-a".into();
+        assert!(!a.same_file(&b));
+        b.identity = "other:index:created-a".into();
+        assert!(!a.same_file(&b));
     }
 
     #[test]

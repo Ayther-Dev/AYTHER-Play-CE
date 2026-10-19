@@ -53,9 +53,9 @@ notify     = "8.2"
 # resuelve el core, que es el mismo lector que usa el Runtime.
 zip        = "2"
 sha2       = "0.10"
-ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.13", version = "0.1", features = ["local-packs"] }
+ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.17", version = "0.1", features = ["local-packs"] }
 
-# Upstream rc.13 couples release reads to signer trust, which CE does not provide.
+# Upstream rc.17 couples release reads to signer trust, which CE does not provide.
 # Keep the scoped offline-reader patch reproducible; see vendor/ayther_core/CE-PATCH.md.
 [patch."https://github.com/Ayther-Dev/AYTHER-Engine"]
 ayther_core = { path = "vendor/ayther_core" }

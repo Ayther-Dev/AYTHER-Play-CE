@@ -18,7 +18,8 @@ use std::{
     },
 };
 
-const INSPECTION_VERSION: u32 = 1;
+// 2: snapshots carry pose_substitutions.toml and its asset headers (Engine rc.17).
+const INSPECTION_VERSION: u32 = 2;
 const MAX_METADATA_CACHE_BYTES: usize = 32 * 1024 * 1024;
 static GLOBAL: OnceLock<Repository> = OnceLock::new();
 
@@ -104,7 +105,7 @@ impl Repository {
             let present = Revision::observe(&current).ok();
             if present
                 .as_ref()
-                .is_some_and(|r| r.identity == operation.snapshot.revision.identity)
+                .is_some_and(|r| r.same_file(&operation.snapshot.revision))
             {
                 let mut snapshot = operation.snapshot;
                 snapshot.revision = present.unwrap();
@@ -117,7 +118,7 @@ impl Repository {
             if present
                 .as_ref()
                 .zip(operation.installed_before.as_ref())
-                .is_some_and(|(a, b)| a.identity == b.identity)
+                .is_some_and(|(a, b)| a.same_file(b))
             {
                 // Promotion did not replace the original, or its rollback succeeded.
                 self.invalidate(&current)?;
@@ -128,10 +129,9 @@ impl Repository {
                 if let Some(previous) = &operation.installed_before {
                     let reserved = crate::file_revision::reserve_for_mutation(&operation.previous)
                         .map_err(|e| e.to_string())?;
-                    if Revision::from_file(&reserved)
+                    if !Revision::from_file(&reserved)
                         .map_err(|e| e.to_string())?
-                        .identity
-                        != previous.identity
+                        .same_file(previous)
                     {
                         return Err("La versión anterior del pack cambió; la recuperación requiere revisión".into());
                     }
@@ -139,10 +139,9 @@ impl Repository {
                 } else {
                     let reserved = crate::file_revision::reserve_for_mutation(&operation.staging)
                         .map_err(|e| e.to_string())?;
-                    if Revision::from_file(&reserved)
+                    if !Revision::from_file(&reserved)
                         .map_err(|e| e.to_string())?
-                        .identity
-                        != operation.snapshot.revision.identity
+                        .same_file(&operation.snapshot.revision)
                     {
                         return Err(
                             "El pack pendiente cambió; no se completó su instalación".into()
@@ -409,6 +408,7 @@ fn read_metadata(path: &Path, revision: Revision) -> Result<Snapshot> {
                 metadata: ValidationMetadata {
                     names: Vec::new(),
                     texts: Default::default(),
+                    asset_heads: Default::default(),
                 },
                 catalog: None,
                 parse_error: Some(message),
@@ -488,6 +488,65 @@ mod tests {
                 .is_empty()
         );
         repo.recover_promotions().unwrap();
+    }
+
+    /// A crash right after `rename(staging, current)` leaves `current` with the
+    /// creation time of the pack it replaced (NTFS tunneling, see
+    /// `Revision::same_file`). Recovery must still recognise it as the promoted
+    /// file instead of keeping the operation pending forever.
+    #[cfg(windows)]
+    #[test]
+    fn recovery_recognises_the_promoted_file_despite_a_tunneled_creation_time() {
+        use std::os::windows::fs::FileTimesExt;
+        let d = tempfile::tempdir().unwrap();
+        let repo = Repository::new(Store::open(&d.path().join("catalog.sqlite3")).unwrap());
+        let current = d.path().join("pack.ay");
+        let previous = d.path().join("pack.ay.prev");
+        let staging = d.path().join("pack.ay.new");
+        make_pack(&current, "Old");
+        make_pack(&staging, "New");
+        std::fs::File::options()
+            .write(true)
+            .open(&staging)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new().set_created(
+                    std::time::SystemTime::now() + std::time::Duration::from_secs(600),
+                ),
+            )
+            .unwrap();
+        let old = Revision::observe(&current).unwrap();
+        let snapshot = repo
+            .inspect(&staging, &AtomicBool::new(false), &mut |_, _| {})
+            .unwrap();
+        repo.operation(
+            &current,
+            &Promotion {
+                staging: staging.clone(),
+                previous: previous.clone(),
+                installed_before: Some(old),
+                snapshot: (*snapshot).clone(),
+            },
+        )
+        .unwrap();
+        std::fs::rename(&current, &previous).unwrap();
+        std::fs::rename(&staging, &current).unwrap();
+        let promoted = Revision::observe(&current).unwrap();
+        assert_ne!(
+            promoted.identity, snapshot.revision.identity,
+            "tunneling changed the creation time"
+        );
+
+        repo.recover_promotions().unwrap();
+        assert!(
+            repo.store
+                .records::<Promotion>("pack-operations")
+                .unwrap()
+                .is_empty(),
+            "the promotion is finished, not kept pending"
+        );
+        assert!(previous.is_file() && current.is_file() && !staging.exists());
+        assert!(repo.discover(&current).unwrap().audit.is_none());
     }
 
     #[test]

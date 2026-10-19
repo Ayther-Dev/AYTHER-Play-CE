@@ -1,7 +1,9 @@
 # Offline pack policy for Play CE
 
-Source: AYTHER-Engine v0.1.0-rc.13, commit
-`b00d3e02b51d4d3a013426e236b3e04983c3d920`, `core/` (MPL-2.0).
+Source: AYTHER-Engine v0.1.0-rc.17, commit
+`4ed2310f13d5cfd16156fe14b185f3273fc5a5b0`, `core/` (MPL-2.0). The CE changes
+were carried forward from the rc.13 snapshot with a three-way merge; upstream
+rc.13→rc.17 does not touch `archive_vfs.rs` and only adds to `pack_validate.rs`.
 
 The pinned upstream reader rejects all signatures in release builds when no
 trust store is supplied. Play CE intentionally has no signer registry and audits
@@ -31,6 +33,13 @@ entries and applies the existing archive policy. `validate_metadata` and
 `validate_path`/`compat_grade` delegate to them. Catalog display does not require
 opening or decompressing asset payloads. Full byte auditing remains a separate
 step in Play, and Runtime's own trust/integrity checks remain enabled.
+
+rc.17 adds a validator rule (spec 002, R7) that reads the first bytes of every
+asset `pose_substitutions.toml` assigns. To keep `validate_metadata` free of
+archive access, `read_metadata` also captures `pose_substitutions.toml` and the
+first 64 bytes of each entry its poses resolve to (`asset_heads`, serde default
+empty); the rule then runs on that data with upstream's verdicts. Play's
+snapshot cache bumps `INSPECTION_VERSION` so older snapshots are re-read.
 
 The vendored crate is a workspace member so its tests can be run with
 `cargo test -p ayther_core --lib` and with `--features local-packs`. Two tests

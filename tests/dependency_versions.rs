@@ -1,11 +1,11 @@
 use std::{fs, path::Path};
 
-const ENGINE_TAG: &str = "v0.1.0-rc.13";
-const ENGINE_COMMIT: &str = "b00d3e02b51d4d3a013426e236b3e04983c3d920";
-const RUNTIME_TAG: &str = "v0.1.0-beta.8";
-const RUNTIME_COMMIT: &str = "94bd583503dcaf76cb553f31d240e879e0cc49e4";
-const RUNTIME_ASSET: &str = "ayther-runtime-0.1.0-beta.8-Windows-AMD64-Runtime.zip";
-const RUNTIME_SHA256: &str = "62cac82dd8faf9de75473ba17e699edcc0220d0c74c6de0bc13946fe49ba0d58";
+const ENGINE_TAG: &str = "v0.1.0-rc.17";
+const ENGINE_COMMIT: &str = "4ed2310f13d5cfd16156fe14b185f3273fc5a5b0";
+const RUNTIME_TAG: &str = "v0.1.0-beta.11";
+const RUNTIME_COMMIT: &str = "a2fbf061912b890a64e3c5b428ee8e61787a6a5a";
+const RUNTIME_ASSET: &str = "ayther-runtime-0.1.0-beta.11-Windows-AMD64-Runtime.zip";
+const RUNTIME_SHA256: &str = "6f82ef8d1da9485464fddc28329d3c9f60d8c96bb30cef518e601e575ad4e5d0";
 
 fn read(root: &Path, path: &str) -> String {
     fs::read_to_string(root.join(path)).unwrap_or_else(|error| panic!("{path}: {error}"))

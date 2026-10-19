@@ -1,11 +1,11 @@
 {
   "repository": "https://github.com/Ayther-Dev/AYTHER-Runtime.git",
-  "source_commit": "94bd583503dcaf76cb553f31d240e879e0cc49e4",
-  "release_tag": "v0.1.0-beta.8",
+  "source_commit": "a2fbf061912b890a64e3c5b428ee8e61787a6a5a",
+  "release_tag": "v0.1.0-beta.11",
   "platform": "windows-x86_64",
   "status": "available",
-  "asset_name": "ayther-runtime-0.1.0-beta.8-Windows-AMD64-Runtime.zip",
-  "asset_url": "https://github.com/Ayther-Dev/AYTHER-Runtime/releases/download/v0.1.0-beta.8/ayther-runtime-0.1.0-beta.8-Windows-AMD64-Runtime.zip",
-  "sha256": "62cac82dd8faf9de75473ba17e699edcc0220d0c74c6de0bc13946fe49ba0d58",
+  "asset_name": "ayther-runtime-0.1.0-beta.11-Windows-AMD64-Runtime.zip",
+  "asset_url": "https://github.com/Ayther-Dev/AYTHER-Runtime/releases/download/v0.1.0-beta.11/ayther-runtime-0.1.0-beta.11-Windows-AMD64-Runtime.zip",
+  "sha256": "6f82ef8d1da9485464fddc28329d3c9f60d8c96bb30cef518e601e575ad4e5d0",
   "executable": "bin/ayther_runtime.exe"
 }

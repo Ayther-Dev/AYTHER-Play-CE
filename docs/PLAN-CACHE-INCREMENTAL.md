@@ -24,7 +24,7 @@ SQLite encaja con una aplicación de escritorio que necesita consultas parciales
 | `Library::save_game` / `record_session` | Reescriben el JSON completo | Actualizar las filas afectadas |
 | `Library::prune_missing` | Comprueba globalmente si existen los archivos | Bajas limitadas al ámbito reconciliado y accesible |
 
-Referencias de la base revisada: [library.rs](C:/Users/david/Workspaces/ayther/AYTHER-Play-CE/src/library.rs:363), [main.rs](C:/Users/david/Workspaces/ayther/AYTHER-Play-CE/src/main.rs:3340), [pack_details.rs](C:/Users/david/Workspaces/ayther/AYTHER-Play-CE/src/pack_details.rs:156), [pack_install.rs](C:/Users/david/Workspaces/ayther/AYTHER-Play-CE/src/pack_install.rs:165).
+Referencias de la base revisada: [library.rs](C:/ayther/AYTHER-Play-CE/src/library.rs:363), [main.rs](C:/ayther/AYTHER-Play-CE/src/main.rs:3340), [pack_details.rs](C:/ayther/AYTHER-Play-CE/src/pack_details.rs:156), [pack_install.rs](C:/ayther/AYTHER-Play-CE/src/pack_install.rs:165).
 
 ## 3. Comparación medida: SQLite, JSON y TOML
 
@@ -52,7 +52,7 @@ Límites de la prueba:
 - La sincronización del temporal no demuestra por sí sola durabilidad del renombrado ante pérdida de energía. No se ensayaron fallos de alimentación ni se comparó el espacio total con WAL.
 - Hay variación entre ejecuciones, especialmente en escrituras. Es un ensayo exploratorio; repetir con el esquema y SQLite definitivos para evaluar los objetivos de §10. El ensayo no demuestra su cumplimiento ni permite rebajarlos automáticamente.
 
-[Código del benchmark](C:/Users/david/Workspaces/ayther/AYTHER-Play-CE/artifacts/catalog-cache-bench/src/main.rs) y [resultados completos](C:/Users/david/Workspaces/ayther/AYTHER-Play-CE/artifacts/catalog-cache-bench/results.txt). El ensayo está aislado bajo `artifacts`, ignorado por Git, y no añade dependencias a Play.
+[Código del benchmark](C:/ayther/AYTHER-Play-CE/artifacts/catalog-cache-bench/src/main.rs) y [resultados completos](C:/ayther/AYTHER-Play-CE/artifacts/catalog-cache-bench/results.txt). El ensayo está aislado bajo `artifacts`, ignorado por Git, y no añade dependencias a Play.
 
 ## 4. Contrato funcional y alcance de las comprobaciones
 
