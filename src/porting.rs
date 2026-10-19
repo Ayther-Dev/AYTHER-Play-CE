@@ -113,7 +113,10 @@ pub fn import(zip_path: &Path, saves: &Path, when: &str) -> std::io::Result<Impo
         if e.is_dir() {
             continue;
         }
-        let name = e.name().to_string();
+        let Ok(name) = e.name().map(|n| n.into_owned()) else {
+            r.skipped += 1;
+            continue;
+        };
         let Some(rel) = name.strip_prefix(INSIDE_SAVES) else {
             // La configuración NO se importa sola: cambiar las preferencias de
             // alguien porque trajo sus partidas sería una sorpresa. Se cuenta

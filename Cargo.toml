@@ -51,11 +51,11 @@ notify     = "8.2"
 # CE no descarga packs: los lee de donde el jugador los dejó. Lo que sí hace es
 # verificar que el `.ay` esté COMPLETO y que sus hashes cierren, y eso lo
 # resuelve el core, que es el mismo lector que usa el Runtime.
-zip        = "2"
+zip        = "9"
 sha2       = "0.10"
-ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.17", version = "0.1", features = ["local-packs"] }
+ayther_core = { git = "https://github.com/Ayther-Dev/AYTHER-Engine", tag = "v0.1.0-rc.18", version = "0.1", features = ["local-packs"] }
 
-# Upstream rc.17 couples release reads to signer trust, which CE does not provide.
+# Upstream rc.18 couples release reads to signer trust, which CE does not provide.
 # Keep the scoped offline-reader patch reproducible; see vendor/ayther_core/CE-PATCH.md.
 [patch."https://github.com/Ayther-Dev/AYTHER-Engine"]
 ayther_core = { path = "vendor/ayther_core" }

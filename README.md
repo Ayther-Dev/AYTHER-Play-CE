@@ -79,15 +79,15 @@ only from sources you trust.
 
 ## AYTHER dependencies
 
-Actualización del 2026-10-09: Play CE utiliza Runtime beta.11 publicado, construido con Engine rc.17, el mismo que vendoriza Play. El lock fija la distribución verificada y su procedencia.
+Actualización del 2026-10-19: Play CE utiliza Runtime beta.12 publicado, construido con Engine rc.18, el mismo que vendoriza Play. El lock fija la distribución verificada y su procedencia.
 
-Play uses [AYTHER Engine v0.1.0-rc.17](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.17),
+Play uses [AYTHER Engine v0.1.0-rc.18](https://github.com/Ayther-Dev/AYTHER-Engine/releases/tag/v0.1.0-rc.18),
 with the documented offline-reader patch in [`vendor/ayther_core/CE-PATCH.md`](vendor/ayther_core/CE-PATCH.md).
 No sibling Engine checkout is required.
 
-Play utiliza [Runtime v0.1.0-beta.11](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.11),
-publicado el 2026-10-08. La distribución Windows AMD64 y el commit
-`a2fbf061912b890a64e3c5b428ee8e61787a6a5a` están fijados junto con el SHA-256 del ZIP en
+Play utiliza [Runtime v0.1.0-beta.12](https://github.com/Ayther-Dev/AYTHER-Runtime/releases/tag/v0.1.0-beta.12),
+publicado el 2026-10-19. La distribución Windows AMD64 y el commit
+`9f5ebf36b59b864bee65440345ffa8175a62fae4` están fijados junto con el SHA-256 del ZIP en
 [`tools/runtime-lock.json`](tools/runtime-lock.json). Las pruebas reales de reserva,
 lanzamiento y detección de core pasaron contra ese binario distribuido.
 

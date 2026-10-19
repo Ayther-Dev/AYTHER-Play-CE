@@ -645,11 +645,15 @@ impl AyArchive {
             if entry.is_dir() {
                 continue;
             }
+            let name = entry.name()?.into_owned();
+            let data_start = entry.data_start().ok_or_else(|| {
+                PackPolicyViolation::new(format!("entry '{name}' has no data offset"))
+            })?;
             names.push(EntryLoc {
-                name: entry.name().to_string(),
+                name,
                 size: entry.size(),
                 compressed_size: entry.compressed_size(),
-                data_start: entry.data_start(),
+                data_start,
                 stored: entry.compression() == zip::CompressionMethod::Stored,
             });
         }
@@ -683,7 +687,7 @@ impl AyArchive {
             if entry.is_dir() {
                 continue;
             }
-            let name = entry.name().to_string();
+            let name = entry.name()?.into_owned();
             let declared_size = entry.size();
             let capacity = usize::try_from(declared_size).map_err(|_| {
                 PackPolicyViolation::new(format!(
@@ -1915,7 +1919,7 @@ systems = ["tiles"]
             if e.is_dir() {
                 continue;
             }
-            let name = e.name().to_string();
+            let name = e.name().unwrap().into_owned();
             let mut data = Vec::new();
             e.read_to_end(&mut data).unwrap();
             if let Some(new_data) = f(&name, data) {
@@ -2432,7 +2436,7 @@ systems = ["tiles"]
             let mut files: HashMap<String, Vec<u8>> = HashMap::new();
             for i in 0..zin.len() {
                 let mut e = zin.by_index(i).unwrap();
-                let name = e.name().to_string();
+                let name = e.name().unwrap().into_owned();
                 if name == INTEGRITY_PATH || name == SIGNATURE_PATH {
                     continue;
                 }

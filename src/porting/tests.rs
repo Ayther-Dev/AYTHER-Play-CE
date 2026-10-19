@@ -43,7 +43,7 @@ fn the_export_is_a_zip_that_opens_without_play() {
     let f = std::fs::File::open(&destination).unwrap();
     let mut z = zip::ZipArchive::new(f).unwrap();
     let names: Vec<String> = (0..z.len())
-        .map(|i| z.by_index(i).unwrap().name().to_string())
+        .map(|i| z.by_index(i).unwrap().name().unwrap().into_owned())
         .collect();
     assert!(
         names

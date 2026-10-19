@@ -518,11 +518,17 @@ pub fn read_metadata(path: &str) -> Result<ValidationMetadata, Report> {
             }
         };
         if !entry.is_dir() {
-            central_entries.push((
-                entry.name().to_string(),
-                entry.size(),
-                entry.compressed_size(),
-            ));
+            let name = match entry.name() {
+                Ok(name) => name.into_owned(),
+                Err(e) => {
+                    r.error(
+                        "zip",
+                        format!("el directorio central del pack no se puede leer: {e}"),
+                    );
+                    return Err(r);
+                }
+            };
+            central_entries.push((name, entry.size(), entry.compressed_size()));
         }
     }
     if let Err(e) = validate_archive_metadata(

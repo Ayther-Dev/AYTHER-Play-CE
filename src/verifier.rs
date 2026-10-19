@@ -172,7 +172,10 @@ pub fn audit_with_progress(
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|e| format!("entrada {i}: {e}"))?
+            .into_owned();
         if !names.insert(name.to_ascii_lowercase()) {
             return Err(format!("Entrada repetida: {name}"));
         }
@@ -240,7 +243,7 @@ mod tests {
     fn pack(entries: &[(&str, &[u8])], with_index: bool) -> tempfile::NamedTempFile {
         let f = tempfile::NamedTempFile::new().unwrap();
         let mut z = zip::ZipWriter::new(f.reopen().unwrap());
-        let options: zip::write::FileOptions<'_, ()> =
+        let options: zip::write::SimpleFileOptions =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
         let mut toml_txt = String::new();
         for (n, d) in entries {
@@ -279,11 +282,11 @@ mod tests {
             let orig = std::fs::File::open(f.path()).unwrap();
             let mut z = zip::ZipArchive::new(orig).unwrap();
             let mut w = zip::ZipWriter::new(g.reopen().unwrap());
-            let o: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default()
+            let o: zip::write::SimpleFileOptions = zip::write::FileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
             for i in 0..z.len() {
                 let mut e = z.by_index(i).unwrap();
-                let n = e.name().to_string();
+                let n = e.name().unwrap().into_owned();
                 if n == "b.bin" {
                     continue;
                 }

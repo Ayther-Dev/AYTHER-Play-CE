@@ -16,7 +16,7 @@ mod verifier;
 fn pack(key: Option<&str>, indexed: bool, damaged: bool) -> tempfile::NamedTempFile {
     let file = tempfile::NamedTempFile::new().unwrap();
     let mut zip = zip::ZipWriter::new(file.reopen().unwrap());
-    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    let options: zip::write::SimpleFileOptions = zip::write::FileOptions::default();
     let manifest = b"[pack]\nname='Local pack'\nversion='1.0.0'\ngame_id='crc32:665d7df9'\nayther_min='0.8.0'\n[regions]\ndefault='NTSC'\nsupported=['NTSC']\n";
     let mut index = String::from("version = 1\n");
     for (name, data) in [

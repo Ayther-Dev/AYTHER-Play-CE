@@ -1,9 +1,13 @@
 # Offline pack policy for Play CE
 
-Source: AYTHER-Engine v0.1.0-rc.17, commit
-`4ed2310f13d5cfd16156fe14b185f3273fc5a5b0`, `core/` (MPL-2.0). The CE changes
-were carried forward from the rc.13 snapshot with a three-way merge; upstream
-rc.13→rc.17 does not touch `archive_vfs.rs` and only adds to `pack_validate.rs`.
+Source: AYTHER-Engine v0.1.0-rc.18, commit
+`79c47fedfff8be4f0b94c3a3ee121bb2ed0081b6`, `core/` (MPL-2.0). The CE changes
+were carried forward from the rc.13 snapshot with three-way merges (rc.13→rc.17,
+then rc.17→rc.18). Upstream rc.13→rc.17 does not touch `archive_vfs.rs` and only
+adds to `pack_validate.rs`. Upstream rc.17→rc.18 moves `zip` from 2 to 9
+(RUSTSEC-2026-0367 to -0369): entry names are now fallible. Its central-directory
+hunk lands in CE's `read_metadata`, which returns `Err(report)` instead of the
+bare report; no validation rule changes, so `INSPECTION_VERSION` stays.
 
 The pinned upstream reader rejects all signatures in release builds when no
 trust store is supplied. Play CE intentionally has no signer registry and audits

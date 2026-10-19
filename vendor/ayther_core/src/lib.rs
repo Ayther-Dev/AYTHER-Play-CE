@@ -75,7 +75,7 @@ pub const RELEASE_VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// This counter is independent from [`RELEASE_VERSION`] and changes only when
 /// that ABI contract changes.
-pub const CORE_C_ABI_REVISION: u32 = 7;
+pub const CORE_C_ABI_REVISION: u32 = 8;
 
 use audio_hasher::{AudioHasher, AudioOccurrence, AudioSubstitutor};
 use vram_sprite::{SpriteHasher, SpriteSubstitutor};
@@ -4385,6 +4385,28 @@ pub unsafe extern "C" fn ayther_palette_signature(
         vram_sprite::palette_signature(std::slice::from_raw_parts(words, n as usize), line, slots)
     }
 }
+/// Computes the sprite identity of pattern bytes gathered in VRAM (host) order.
+///
+/// `bytes` holds `n` bytes, `n` a multiple of 32 (the w×h tiles of the sprite,
+/// contiguous from its base tile). The result equals the hash the sprite
+/// detector assigns to that sprite (`AytherRecording::kSpriteHashAlgo`). Returns
+/// 0 for a null pointer, `n == 0` or `n` not a multiple of 32. Spec 007: lets a
+/// frontend verify a stored element record against its identity.
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// The caller must uphold the crate-level FFI safety contract documented at the
+/// crate root, including all pointer, buffer, lifetime, and ownership requirements.
+pub unsafe extern "C" fn ayther_sprite_pattern_hash(bytes: *const u8, n: u32) -> u64 {
+    // SAFETY: The caller upholds the pointer, lifetime, and ownership invariants
+    // documented for this FFI function.
+    unsafe {
+        if bytes.is_null() || n == 0 || !n.is_multiple_of(32) {
+            return 0;
+        }
+        identity_kat::sprite_pattern_hash(std::slice::from_raw_parts(bytes, n as usize))
+    }
+}
 /// Sets the visible display area for the active video mode.
 ///
 /// A missing pose member is tolerated only when its expected rectangle is fully
@@ -5609,6 +5631,61 @@ pub unsafe extern "C" fn ayther_audio_event_set_initial_active(
         if !ptr.is_null() {
             (*ptr).set_initial_active(mask);
         }
+    }
+}
+
+/// Copy the detector's YM2612 register shadow (`FM_REGISTER_COUNT` = 512 bytes:
+/// bank 0 then bank 1) into `out`. Returns the bytes written, or 0 when `ptr` or
+/// `out` is null or `cap` is smaller than the shadow. The session captures it
+/// when a take starts recording so the replay can seed it later.
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// The caller must uphold the crate-level FFI safety contract documented at the
+/// crate root, including all pointer, buffer, lifetime, and ownership requirements.
+pub unsafe extern "C" fn ayther_audio_event_fm_registers(
+    ptr: *const audio_event::AudioEventDetector,
+    out: *mut u8,
+    cap: usize,
+) -> usize {
+    // SAFETY: The caller upholds the pointer, lifetime, and ownership invariants
+    // documented for this FFI function.
+    unsafe {
+        if ptr.is_null() || out.is_null() || cap < audio_event::FM_REGISTER_COUNT {
+            return 0;
+        }
+        let regs = (*ptr).fm_registers();
+        std::ptr::copy_nonoverlapping(regs.as_ptr(), out, audio_event::FM_REGISTER_COUNT);
+        audio_event::FM_REGISTER_COUNT
+    }
+}
+
+/// Seed the detector's YM2612 register shadow with `len` == 512 bytes (bank 0
+/// then bank 1): the patches the game loaded before this detector or take
+/// started. Only the shadow changes; key states and events are untouched. A
+/// later `reset` discards it. Returns false (and changes nothing) when `ptr` or
+/// `regs` is null or `len` is not exactly 512.
+#[unsafe(no_mangle)]
+/// # Safety
+///
+/// The caller must uphold the crate-level FFI safety contract documented at the
+/// crate root, including all pointer, buffer, lifetime, and ownership requirements.
+pub unsafe extern "C" fn ayther_audio_event_seed_fm_registers(
+    ptr: *mut audio_event::AudioEventDetector,
+    regs: *const u8,
+    len: usize,
+) -> bool {
+    // SAFETY: The caller upholds the pointer, lifetime, and ownership invariants
+    // documented for this FFI function.
+    unsafe {
+        if ptr.is_null() || regs.is_null() || len != audio_event::FM_REGISTER_COUNT {
+            return false;
+        }
+        let slice = std::slice::from_raw_parts(regs, audio_event::FM_REGISTER_COUNT);
+        let mut seed = [0u8; audio_event::FM_REGISTER_COUNT];
+        seed.copy_from_slice(slice);
+        (*ptr).seed_fm_registers(&seed);
+        true
     }
 }
 
@@ -7853,6 +7930,30 @@ mod visual_state_ffi_tests {
             );
             assert!(!ayther_sha256_hex(std::ptr::null(), 1, out.as_mut_ptr()));
             assert!(!ayther_sha256_hex(b"abc".as_ptr(), 3, std::ptr::null_mut()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod sprite_pattern_hash_ffi_tests {
+    use super::*;
+
+    /// Spec 007: the FFI is the identity a frontend checks an element record
+    /// against, so it must equal the published reproducer and refuse what is not
+    /// a whole number of tiles.
+    #[test]
+    fn ffi_matches_reproducer_and_rejects_partial_tiles() {
+        let bytes: Vec<u8> = (0..64u32).map(|i| (i * 37 + 11) as u8).collect();
+        // SAFETY: Each pointer is valid for the length passed, or null with n = 0.
+        unsafe {
+            assert_eq!(
+                ayther_sprite_pattern_hash(bytes.as_ptr(), 64),
+                identity_kat::sprite_pattern_hash(&bytes)
+            );
+            assert_ne!(ayther_sprite_pattern_hash(bytes.as_ptr(), 64), 0);
+            assert_eq!(ayther_sprite_pattern_hash(std::ptr::null(), 32), 0);
+            assert_eq!(ayther_sprite_pattern_hash(bytes.as_ptr(), 0), 0);
+            assert_eq!(ayther_sprite_pattern_hash(bytes.as_ptr(), 33), 0);
         }
     }
 }
