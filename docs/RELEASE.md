@@ -6,7 +6,7 @@ SDK (linker and resource compiler). Release integration also uses GitHub CLI (`g
 with repository read access; GitHub Actions supplies its standard `GH_TOKEN`.
 `rust-toolchain.toml` selects Rust 1.95.0,
 rustfmt and Clippy. Allow Cargo network access on first use for locked crates.
-Engine `v0.1.0-rc.18` is vendored with the documented CE offline-reader patch;
+Engine `v0.1.0-rc.19` is vendored with the documented CE offline-reader patch;
 no sibling Engine checkout is required. UI, translations and
 fonts are embedded by the build. Other platforms are not release-validated here.
 
@@ -48,7 +48,7 @@ Play's process launcher. They do not close the manual game checks below:
 
 1. Supply a core and game whose use is authorized; record their versions and
    SHA-256 without committing personal game data.
-2. Start Play against the distributed beta.12 Runtime, restore default controls,
+2. Start Play against the distributed beta.13 Runtime, restore default controls,
    launch a game, verify keyboard and controller input and a clean exit.
 3. Swap keyboard and controller assignments in Play, put the generated map in a
    path containing spaces, and verify each changed action inside the game. Save

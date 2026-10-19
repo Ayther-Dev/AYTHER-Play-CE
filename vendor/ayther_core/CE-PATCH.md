@@ -1,9 +1,10 @@
 # Offline pack policy for Play CE
 
-Source: AYTHER-Engine v0.1.0-rc.18, commit
-`79c47fedfff8be4f0b94c3a3ee121bb2ed0081b6`, `core/` (MPL-2.0). The CE changes
+Source: AYTHER-Engine v0.1.0-rc.19, commit
+`6f272c893dbf1cc3d9adfc6f2ff878a9c974acd8`, `core/` (MPL-2.0). The CE changes
 were carried forward from the rc.13 snapshot with three-way merges (rc.13→rc.17,
-then rc.17→rc.18). Upstream rc.13→rc.17 does not touch `archive_vfs.rs` and only
+then rc.17→rc.18). Upstream rc.18→rc.19 does not touch `core/`, so the vendored
+sources are those of rc.18. Upstream rc.13→rc.17 does not touch `archive_vfs.rs` and only
 adds to `pack_validate.rs`. Upstream rc.17→rc.18 moves `zip` from 2 to 9
 (RUSTSEC-2026-0367 to -0369): entry names are now fallible. Its central-directory
 hunk lands in CE's `read_metadata`, which returns `Err(report)` instead of the
