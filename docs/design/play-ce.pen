@@ -28020,6 +28020,576 @@
       "width": 720,
       "height": 0,
       "content": "05b–05e · SETTINGS — NÚCLEO DE EMULACIÓN (spec 008, RF-9, TP-012)\n• En Sistema, la fila «Núcleo de emulación» elige entre «Tessera (Experimental)» y «Core externo» (selección única, mismos chips que Precedencia). La elección es global de Play CE y se aplica a la siguiente sesión.\n• Con «Tessera» no hay campo: el núcleo viene incluido y no se valida.\n• Con «Core externo» aparece la fila «Archivo del core (obligatorio)». «Elegir archivo» / «Cambiar» abre el mismo diálogo validado de la incorporación (paso Core) y la sonda de core comprueba ABI 1.10 con observación AYTHER.\n• Hasta cerrar G3 viene marcado «Core externo» (PQ-5): una instalación nueva debe indicar el core.\n• Sin archivo o con un core sin observación AYTHER se muestra el motivo junto al campo en una alerta y el cambio no se guarda: sigue el núcleo anterior. Un core sin observación se rechaza incluso para jugar sin pack (PQ-6).\n• Sustituye a la fila «Cores · Administrar», porque ahora hay un único core externo. El paso «Core» de la incorporación queda pendiente de adaptar a esta elección.\n• Los identificadores de elementos son iguales con ambos núcleos, así que un pack creado con uno funciona con el otro."
+    },
+    {
+      "type": "frame",
+      "id": "GGwkG",
+      "x": 6222,
+      "y": 1280,
+      "name": "Onboarding · Núcleo (Tessera o core externo)",
+      "clip": true,
+      "width": 1920,
+      "height": 1080,
+      "fill": "$--bg-window",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "AUH8b",
+          "name": "Center",
+          "width": "fill_container",
+          "height": "fill_container",
+          "gap": 28,
+          "justifyContent": "center",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "NiIHY",
+              "name": "Brand",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 16,
+              "justifyContent": "center",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "path",
+                  "id": "f47Ep",
+                  "name": "Logo/lg",
+                  "geometry": "M761.56 111l-160 0 42.88 160-42.88 160-149.43 0 42.87-160 63.56 0 42.88-160-160 0-42.88 160-63.56 0-171.49 640 160 0 85.75-320 242.2 0 42.87-160 67.23 0 42.88-160-42.88-160z",
+                  "viewBox": [
+                    0,
+                    0,
+                    1024,
+                    1024
+                  ],
+                  "fill": "$--brand",
+                  "width": 160,
+                  "height": 160
+                },
+                {
+                  "type": "text",
+                  "id": "HSNm4",
+                  "name": "h",
+                  "fill": "$--text-bright",
+                  "content": "AYTHER PLAY CE",
+                  "fontFamily": "$--font-display",
+                  "fontSize": 64,
+                  "fontWeight": "600",
+                  "letterSpacing": 1.9
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "otwj5",
+              "name": "Body",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 20,
+              "padding": 32,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "nUm4M",
+                  "name": "WizardHeader",
+                  "layout": "vertical",
+                  "gap": 16,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "GV8tK",
+                      "name": "dots",
+                      "gap": 10,
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": "$--radius-pill",
+                          "id": "F3BqXq",
+                          "name": "d1",
+                          "fill": "$--accent",
+                          "width": 12,
+                          "height": 12
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": "$--radius-pill",
+                          "id": "sVSdJ",
+                          "name": "d2",
+                          "fill": "$--accent",
+                          "width": 12,
+                          "height": 12
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": "$--radius-pill",
+                          "id": "tX16C",
+                          "name": "d3",
+                          "fill": "$--accent",
+                          "width": 12,
+                          "height": 12
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": "$--radius-pill",
+                          "id": "yv9We",
+                          "name": "d4",
+                          "fill": "$--accent",
+                          "width": 12,
+                          "height": 12
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": "$--radius-pill",
+                          "id": "hTxll",
+                          "name": "d5",
+                          "fill": "$--border",
+                          "width": 12,
+                          "height": 12
+                        },
+                        {
+                          "type": "rectangle",
+                          "cornerRadius": "$--radius-pill",
+                          "id": "okwLj",
+                          "name": "d6",
+                          "fill": "$--border",
+                          "width": 12,
+                          "height": 12
+                        },
+                        {
+                          "type": "text",
+                          "id": "w8KwAt",
+                          "name": "t",
+                          "fill": "$--text-dim",
+                          "content": "Paso 4 de 6",
+                          "fontFamily": "$--font-mono",
+                          "fontSize": 18,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "YHXqh",
+                      "name": "h",
+                      "fill": "$--text-bright",
+                      "content": "ELEGÍ TU NÚCLEO",
+                      "fontFamily": "$--font-display",
+                      "fontSize": 44,
+                      "fontWeight": "600",
+                      "letterSpacing": 1.3
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "UxjOA",
+                  "name": "CoreRow",
+                  "width": "fill_container",
+                  "height": 72,
+                  "fill": "$--bg-panel",
+                  "cornerRadius": "$--radius-sm",
+                  "gap": 20,
+                  "padding": [
+                    0,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "Y43OM",
+                      "name": "glyph",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "cpu",
+                      "library": "phosphor",
+                      "fill": "$--success"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "cxSnw",
+                      "name": "tx",
+                      "clip": true,
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "OzuCv",
+                          "name": "t",
+                          "fill": "$--text-bright",
+                          "content": "Tessera (Experimental)",
+                          "fontFamily": "$--font-mono",
+                          "fontSize": 20,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "A9kKK",
+                          "name": "t",
+                          "fill": "$--text-dim",
+                          "content": "Incluido en AYTHER · sin archivos extra · Mega Drive",
+                          "fontFamily": "$--font",
+                          "fontSize": 18,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "h9Bc8",
+                      "name": "SemaphoreBadge:Compatible",
+                      "fill": "$--bg-elevated",
+                      "cornerRadius": "$--radius-md",
+                      "gap": 8,
+                      "padding": [
+                        6,
+                        12
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "nC2TD",
+                          "name": "glyph",
+                          "width": 24,
+                          "height": 24,
+                          "icon": "check-circle",
+                          "library": "phosphor",
+                          "fill": "$--success"
+                        },
+                        {
+                          "type": "text",
+                          "id": "M8fzS2",
+                          "name": "Label",
+                          "fill": "$--success",
+                          "content": "Compatible",
+                          "fontFamily": "$--font",
+                          "fontSize": 18,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "i9HvxO",
+                  "name": "CoreRow",
+                  "width": "fill_container",
+                  "height": 72,
+                  "fill": "$--bg-panel",
+                  "cornerRadius": "$--radius-sm",
+                  "gap": 20,
+                  "padding": [
+                    0,
+                    16
+                  ],
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "FC4p1",
+                      "name": "glyph",
+                      "width": 28,
+                      "height": 28,
+                      "icon": "cpu",
+                      "library": "phosphor",
+                      "fill": "$--danger"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Iu6kV",
+                      "name": "tx",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 2,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xWdSQ",
+                          "name": "t",
+                          "fill": "$--text-bright",
+                          "content": "Core externo",
+                          "fontFamily": "$--font-mono",
+                          "fontSize": 20,
+                          "fontWeight": "500"
+                        },
+                        {
+                          "type": "text",
+                          "id": "LW5z4",
+                          "name": "t",
+                          "fill": "$--text-dim",
+                          "content": "Archivo del core obligatorio · gpgx x64 con la extensión AYTHER",
+                          "fontFamily": "$--font",
+                          "fontSize": 18,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "XilYX",
+                      "name": "SemaphoreBadge:Incompatible",
+                      "fill": "$--bg-elevated",
+                      "cornerRadius": "$--radius-md",
+                      "gap": 8,
+                      "padding": [
+                        6,
+                        12
+                      ],
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "hup4W",
+                          "name": "glyph",
+                          "width": 24,
+                          "height": 24,
+                          "icon": "x-circle",
+                          "library": "phosphor",
+                          "fill": "$--danger"
+                        },
+                        {
+                          "type": "text",
+                          "id": "yzbk0",
+                          "name": "Label",
+                          "fill": "$--danger",
+                          "content": "Sin archivo",
+                          "fontFamily": "$--font",
+                          "fontSize": 18,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "MHSA0",
+                  "name": "Alert/10ft",
+                  "width": "fill_container",
+                  "fill": "$--overlay-hi",
+                  "cornerRadius": "$--radius-md",
+                  "gap": 16,
+                  "padding": 24,
+                  "children": [
+                    {
+                      "type": "icon",
+                      "id": "o7B5X",
+                      "name": "glyph",
+                      "width": 32,
+                      "height": 32,
+                      "icon": "x-circle",
+                      "library": "phosphor",
+                      "fill": "$--danger"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "Dpbi3",
+                      "name": "tx",
+                      "width": "fill_container",
+                      "layout": "vertical",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "xMxjc",
+                          "name": "t",
+                          "fill": "$--text-bright",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Falta el archivo del core",
+                          "fontFamily": "$--font",
+                          "fontSize": 22,
+                          "fontWeight": "600"
+                        },
+                        {
+                          "type": "text",
+                          "id": "ksph2",
+                          "name": "t",
+                          "fill": "$--text-dim",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "Con «Core externo» hay que elegir el archivo. Un pack creado con uno funciona con el otro.",
+                          "lineHeight": 1.35,
+                          "fontFamily": "$--font",
+                          "fontSize": 20,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "jNM0z",
+                          "name": "go",
+                          "fill": "$--accent",
+                          "content": "Elegir archivo →",
+                          "fontFamily": "$--font",
+                          "fontSize": 20,
+                          "fontWeight": "600"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "CRR5s",
+          "name": "ButtonHints",
+          "width": "fill_container",
+          "height": 72,
+          "fill": "$--bg-panel",
+          "stroke": "$--border",
+          "strokeWidth": {
+            "top": 1
+          },
+          "strokeAlignment": "inner",
+          "strokeLinejoin": "round",
+          "gap": 40,
+          "padding": [
+            0,
+            96
+          ],
+          "justifyContent": "end",
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "frame",
+              "id": "ZUgVn",
+              "name": "hint",
+              "gap": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "LA2BY",
+                  "name": "PadGlyph/A",
+                  "width": 32,
+                  "height": 32,
+                  "fill": "$--text-bright",
+                  "cornerRadius": "$--radius-pill",
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "S4C4ul",
+                      "name": "l",
+                      "fill": "$--accent-fg",
+                      "content": "A",
+                      "fontFamily": "$--font",
+                      "fontSize": 18,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "x9Lxu",
+                  "name": "Label",
+                  "fill": "$--text-normal",
+                  "content": "Elegir",
+                  "fontFamily": "$--font",
+                  "fontSize": 22,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "rTypN",
+              "name": "hint",
+              "gap": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "HTSnS",
+                  "name": "PadGlyph/B",
+                  "width": 32,
+                  "height": 32,
+                  "fill": "$--text-bright",
+                  "cornerRadius": "$--radius-pill",
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "odc8G",
+                      "name": "l",
+                      "fill": "$--accent-fg",
+                      "content": "B",
+                      "fontFamily": "$--font",
+                      "fontSize": 18,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "LgUqy",
+                  "name": "Label",
+                  "fill": "$--text-normal",
+                  "content": "Volver",
+                  "fontFamily": "$--font",
+                  "fontSize": 22,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "jNUoa",
+              "name": "hint",
+              "gap": 12,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "M1YzQ",
+                  "name": "PadGlyph/B",
+                  "width": 32,
+                  "height": 32,
+                  "fill": "$--text-bright",
+                  "cornerRadius": "$--radius-pill",
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "shlyW",
+                      "name": "l",
+                      "fill": "$--accent-fg",
+                      "content": "X",
+                      "fontFamily": "$--font",
+                      "fontSize": 18,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "C21xH",
+                  "name": "Label",
+                  "fill": "$--text-normal",
+                  "content": "Archivo",
+                  "fontFamily": "$--font",
+                  "fontSize": 22,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
