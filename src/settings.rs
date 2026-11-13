@@ -179,7 +179,7 @@ impl Destructive {
 /// borrado de las copias remotas, el canal de actualización y volver a la
 /// versión anterior: las seis hablan con un servicio o con lo que ese servicio
 /// instaló, y CE no tiene ninguno (ADR-005).
-pub const ROWS: i32 = 10;
+pub const ROWS: i32 = 11;
 
 /// Lo que «A» hace sobre una fila.
 ///
@@ -197,7 +197,11 @@ pub enum Action {
     /// arranque: dos selectores de carpeta distintos serían dos
     /// comportamientos distintos para la misma decisión.
     EditFolders,
-    /// Ídem con el paso del core.
+    /// Spec 008 (RF-9.1, TP-310.4): alterna el núcleo de emulación entre
+    /// «Tessera (Experimental)» y «Core externo» y lo guarda.
+    CycleProvider,
+    /// «Archivo del core (obligatorio)»: el paso del core del wizard. Sólo
+    /// con «Core externo»; con Tessera la fila está apagada.
     EditCores,
     /// Rota al siguiente perfil de salida global.
     CycleOutput,
@@ -231,21 +235,22 @@ pub fn action(row: i32) -> Option<Action> {
     Some(match row {
         0 => Action::CycleLanguage,
         1 => Action::EditFolders,
-        2 => Action::EditCores,
-        3 => Action::CycleOutput,
-        4 => Action::OpenControls,
+        2 => Action::CycleProvider,
+        3 => Action::EditCores,
+        4 => Action::CycleOutput,
+        5 => Action::OpenControls,
         // #678 — los packs van con el CONTENIDO, pegados a las carpetas de ROMs
         // y a los cores: son la misma pregunta («¿de dónde salen mis cosas?»)
         // y no una acción de mantenimiento del final de la lista.
-        5 => Action::ChoosePacksFolder,
-        6 => Action::InstallPack,
+        6 => Action::ChoosePacksFolder,
+        7 => Action::InstallPack,
         // «Carpeta de datos» se muestra y no se edita: mudarla es mover los
         // guardados de lugar, y eso no es un ajuste de una fila.
-        7 => Action::Info,
+        8 => Action::Info,
         // Llevarse los datos, y recién al final lo que confirma. Lo destructivo
         // no va arriba de lo cotidiano.
-        8 => Action::Export,
-        9 => Action::Confirm(Destructive::RedoWelcome),
+        9 => Action::Export,
+        10 => Action::Confirm(Destructive::RedoWelcome),
         _ => return None,
     })
 }
@@ -266,9 +271,107 @@ pub fn secondary_action(row: i32) -> Option<SecondaryAction> {
         .then_some(SecondaryAction::RemovePacksFolder)
 }
 
+/// Spec 008 (plan §2.9): el nombre de cada núcleo. «Experimental» se queda
+/// hasta que el responsable cierre G3 (RF-9.5).
+pub fn provider_label(provider: crate::config::CoreProvider) -> String {
+    match provider {
+        crate::config::CoreProvider::Tessera => tr!("Tessera (Experimental)"),
+        crate::config::CoreProvider::External => tr!("Core externo"),
+    }
+}
+
+/// El otro núcleo: son dos, así que «A» alterna.
+pub fn next_provider(provider: crate::config::CoreProvider) -> crate::config::CoreProvider {
+    match provider {
+        crate::config::CoreProvider::Tessera => crate::config::CoreProvider::External,
+        crate::config::CoreProvider::External => crate::config::CoreProvider::Tessera,
+    }
+}
+
+/// Lo que muestra la fila «Archivo del core (obligatorio)».
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreFileRow {
+    /// Con Tessera no hay archivo que elegir: la fila se apaga.
+    pub enabled: bool,
+    pub detail: String,
+    /// La alerta bajo la fila (plan §3.11): el remedio del último sondeo, o el
+    /// campo obligatorio vacío. Vacía si no hay nada que corregir.
+    pub alert: String,
+}
+
+/// Pura: el núcleo, el archivo configurado y lo que dijo su último sondeo. El
+/// valor anterior se conserva siempre: la fila sólo dice qué le pasa.
+pub fn core_file_row(
+    provider: crate::config::CoreProvider,
+    core: Option<&std::path::Path>,
+    verdict: Option<&crate::core_probe::Verdict>,
+) -> CoreFileRow {
+    if provider == crate::config::CoreProvider::Tessera {
+        return CoreFileRow {
+            enabled: false,
+            detail: tr!("No hace falta: Tessera viene incluido."),
+            alert: String::new(),
+        };
+    }
+    let Some(core) = core.filter(|p| !p.as_os_str().is_empty()) else {
+        return CoreFileRow {
+            enabled: true,
+            detail: String::new(),
+            alert: tr!("Obligatorio: indica el archivo del core."),
+        };
+    };
+    let alert = match verdict {
+        Some(v) if !v.is_usable() => v.remedy(),
+        _ => String::new(),
+    };
+    CoreFileRow {
+        enabled: true,
+        detail: core.display().to_string(),
+        alert,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 008 (TP-310.4): las dos filas del núcleo, en este orden, y sin
+    /// «Cores · Administrar».
+    #[test]
+    fn the_core_rows_are_the_provider_and_the_required_file() {
+        assert_eq!(action(2), Some(Action::CycleProvider));
+        assert_eq!(action(3), Some(Action::EditCores));
+        use crate::config::CoreProvider::{External, Tessera};
+        assert_eq!(next_provider(External), Tessera);
+        assert_eq!(next_provider(Tessera), External);
+        assert!(provider_label(Tessera).contains("Experimental"));
+        assert_eq!(provider_label(External), "Core externo");
+    }
+
+    #[test]
+    fn the_core_file_row_says_what_is_wrong_and_keeps_the_value() {
+        use crate::config::CoreProvider::{External, Tessera};
+        use crate::core_probe::Verdict;
+        let core = std::path::Path::new("C:/cores/genesis_plus_gx_libretro.dll");
+        // Tessera: nada que elegir.
+        let t = core_file_row(Tessera, Some(core), None);
+        assert!(!t.enabled && t.alert.is_empty());
+        // Core externo sin archivo: el campo es obligatorio.
+        let empty = core_file_row(External, None, None);
+        assert!(empty.enabled && empty.alert.contains("Obligatorio"));
+        // Un core de fábrica: el remedio del sondeo, y la ruta sigue ahí.
+        let stock = core_file_row(External, Some(core), Some(&Verdict::AbiMissing));
+        assert_eq!(stock.detail, core.display().to_string());
+        assert_eq!(stock.alert, Verdict::AbiMissing.remedy());
+        let partial = Verdict::CapabilitiesIncomplete(vec!["RASTER_V1".into()]);
+        assert!(
+            core_file_row(External, Some(core), Some(&partial))
+                .alert
+                .contains("RASTER_V1")
+        );
+        // Un core que sirve: sin alerta. Sin sondeo todavía: tampoco.
+        assert!(core_file_row(External, Some(core), None).alert.is_empty());
+    }
 
     /// Gana el más específico, y el orden es el contrato: si «global» le ganara
     /// a «este juego», cambiar un ajuste desde la ficha no haría nada y no habría
@@ -344,7 +447,7 @@ mod tests {
     fn every_row_does_something() {
         for i in 0..ROWS {
             let a = action(i).unwrap_or_else(|| panic!("la fila {i} no existe"));
-            if i == 7 {
+            if i == 8 {
                 assert_eq!(a, Action::Info, "la carpeta de datos no se edita");
             } else {
                 assert_ne!(a, Action::Info, "la fila {i} promete y no hace nada");
@@ -389,6 +492,7 @@ mod tests {
                     a,
                     Action::CycleLanguage
                         | Action::EditFolders
+                        | Action::CycleProvider
                         | Action::EditCores
                         | Action::CycleOutput
                         | Action::OpenControls

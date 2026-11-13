@@ -10,16 +10,25 @@ pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
     match lang {
         "en" => match msgid {
             "Jugar original" => Some("Play original"),
+            "Tessera (Experimental)" => Some("Tessera (Experimental)"),
+            "Core externo" => Some("External core"),
+            "No hace falta: Tessera viene incluido." => Some("Not needed: Tessera is built in."),
+            "Obligatorio: indica el archivo del core." => Some("Required: choose the core file."),
+            "Núcleo de emulación" => Some("Emulation core"),
+            "Tessera (Experimental) · Core externo" => {
+                Some("Tessera (Experimental) · External core")
+            }
+            "Archivo del core (obligatorio)" => Some("Core file (required)"),
             "El núcleo elegido no soporta este sistema. Elegí «Core externo» en Ajustes." => {
                 Some(
-                    "The selected core does not support this system. Choose «External core» in Settings.",
+                    "The selected core does not support this system. Choose “External core” in Settings.",
                 )
             }
             "El core no ofrece la observación AYTHER (ABI 1.10)." => {
-                Some("The core does not offer the AYTHER observation (ABI 1.10).")
+                Some("The core does not provide AYTHER observation (ABI 1.10).")
             }
             "El core no ofrece toda la observación AYTHER" => {
-                Some("The core does not offer all of the AYTHER observation")
+                Some("The core lacks part of the AYTHER observation")
             }
             "No se pudo comprobar el core: no respondió." => {
                 Some("The core could not be checked: it did not respond.")
@@ -30,7 +39,7 @@ pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
                 )
             }
             "El core no ofrece toda la observación AYTHER; faltan: {}." => {
-                Some("The core does not offer all of the AYTHER observation; missing: {}.")
+                Some("The core lacks part of the AYTHER observation; missing: {}.")
             }
             "El core tardó más de {} s en cargar. Elegí otro archivo o revisá el que tenés." => {
                 Some(

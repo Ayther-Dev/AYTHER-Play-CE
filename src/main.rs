@@ -400,27 +400,15 @@ fn main() {
             .into(),
         );
 
-        // Los cores se cuentan por PLATAFORMA servida y no por archivo: el
-        // wizard anota una entrada por cada consola que el core sirve (#589),
-        // así que «3 cores» sobre un solo archivo sería mentir por tres.
-        let files: std::collections::BTreeSet<&std::path::PathBuf> = c.cores.values().collect();
-        app.set_setting_cores(
-            format!(
-                "{} · {}",
-                if files.len() == 1 {
-                    tr!("1 core")
-                } else {
-                    tr!("{} cores", files.len())
-                },
-                if c.cores.is_empty() {
-                    tr!("ninguna consola cubierta")
-                } else {
-                    c.cores.keys().cloned().collect::<Vec<_>>().join(", ")
-                }
-            )
-            .as_str()
-            .into(),
-        );
+        // Spec 008 (TP-310.4): el núcleo y su archivo. La fila del archivo
+        // dice lo que dijo el último sondeo, sin tocar el valor guardado.
+        app.set_setting_provider(settings::provider_label(c.core_provider).as_str().into());
+        let core = config::core_for(&c, config::MEGA_DRIVE);
+        let verdict = core.as_deref().and_then(cores::last_verdict);
+        let row = settings::core_file_row(c.core_provider, core.as_deref(), verdict.as_ref());
+        app.set_setting_core_file(row.detail.as_str().into());
+        app.set_setting_core_alert(row.alert.as_str().into());
+        app.set_setting_core_file_enabled(row.enabled);
 
         // #599: la precedencia, a la vista. Hoy el perfil de salida se define
         // globalmente o lo recomienda el pack; los niveles por consola y por
@@ -562,6 +550,24 @@ fn main() {
                     }
                     render_settings(&app, &cfg, &all_items);
                 }
+
+                // Spec 008 (RF-9.1): el otro núcleo, guardado al momento. La
+                // biblioteca se re-proyecta: el semáforo de cada juego depende
+                // del núcleo (Tessera sólo Mega Drive en esta fase).
+                settings::Action::CycleProvider => {
+                    {
+                        let mut c = cfg.lock().unwrap();
+                        c.core_provider = settings::next_provider(c.core_provider);
+                        c.save();
+                    }
+                    refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                    render_settings(&app, &cfg, &all_items);
+                }
+
+                // Con Tessera no hay archivo que elegir: la fila está apagada y
+                // un «A» que llegue igual (mando, índice viejo) no abre nada.
+                settings::Action::EditCores
+                    if cfg.lock().unwrap().core_provider == config::CoreProvider::Tessera => {}
 
                 settings::Action::EditFolders | settings::Action::EditCores => {
                     let step = if action == settings::Action::EditFolders {

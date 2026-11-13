@@ -156,6 +156,11 @@ pub fn record(core: PathBuf, v: Verdict) {
     }
 }
 
+/// Lo que dijo el último sondeo de `core` en esta corrida, si lo hubo.
+pub fn last_verdict(core: &std::path::Path) -> Option<Verdict> {
+    PROBES.lock().ok().and_then(|s| s.get(core).cloned())
+}
+
 /// El eje del core para esta plataforma, con lo sondeado hasta ahora.
 ///
 /// Un lock envenenado se lee como «no se sondeó nada»: `SinComprobar` no
