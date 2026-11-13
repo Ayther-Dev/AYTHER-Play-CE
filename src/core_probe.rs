@@ -11,11 +11,13 @@
 //! 1. **El header PE**, leyendo 64 bytes del archivo. Distingue x86 de x64
 //!    *antes* de gastar un proceso, y es el único que puede: para Windows un
 //!    core de 32 bits y un archivo inexistente son el mismo error
-//!    (`LoadLibrary` devuelve 193 y 126, el runtime informa `no_carga` en los
-//!    dos casos). Sin este paso, el jugador que bajó la build equivocada lee
-//!    «no se pudo cargar» y no tiene qué hacer con eso.
+//!    (`LoadLibrary` devuelve 193 y 126). Sin este paso, el jugador que bajó
+//!    la build equivocada lee «no se pudo cargar» y no tiene qué hacer con eso.
 //! 2. **El sondeo fuera de proceso**: `ayther_runtime --probe-core <dll>`, que
-//!    sí lo carga, dice qué es y se muere. Play lee su línea `AYTHER_STATUS`.
+//!    sí lo carga, dice qué es y se muere. Play lee su línea `AYTHER_STATUS`
+//!    del contrato de sondeo v2 (spec 008, RF-9.3): `verdict`, `reason` y
+//!    `missing_capabilities`. Si no contesta en 10 s (PQ-10) Play lo mata y el
+//!    veredicto es `timeout`.
 //!
 //! Lo que sale es un `Veredicto` con un mensaje que dice **qué hacer**, no qué
 //! falló. «No se pudo cargar el core» no es un mensaje: es el registro de que
@@ -104,45 +106,76 @@ pub struct CoreInfo {
     pub extensions: Vec<String>,
 }
 
-/// Lee la línea `AYTHER_STATUS {...}` con `event=probe` de la salida del
-/// runtime.
+/// Un sondeo que no dio `ok` (contrato v2): el veredicto tal como lo escribe
+/// el probe, su `reason` y las capacidades que faltan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeRejection {
+    pub verdict: String,
+    pub reason: String,
+    pub missing_capabilities: Vec<String>,
+}
+
+/// Lee la última línea `AYTHER_STATUS {...}` con `event=probe` y
+/// `protocol_version` 2 de la salida del runtime.
 ///
 /// Pura, porque es la parte que se rompe: el runtime imprime otras cosas antes
 /// (`[Config] Loaded from …`, `[CoreLoader] …`) y un parser que asuma «la
-/// primera línea» funciona hasta el día que alguien agregue un log.
-pub fn parse_probe(output: &str) -> Result<CoreInfo, String> {
-    let line = output
+/// primera línea» funciona hasta el día que alguien agregue un log. Una línea
+/// de otro protocolo no cuenta: un runtime anterior a la v2 no dice veredicto.
+pub fn parse_probe(output: &str) -> Result<CoreInfo, ProbeRejection> {
+    let unreadable = |detail: String| ProbeRejection {
+        verdict: "unreadable".into(),
+        reason: detail,
+        missing_capabilities: Vec::new(),
+    };
+    // La ÚLTIMA línea de sondeo manda: se recorre desde el final.
+    let v: serde_json::Value = output
         .lines()
+        .rev()
         .filter_map(|l| l.trim().strip_prefix("AYTHER_STATUS "))
-        .find(|j| j.contains("\"event\":\"probe\""))
-        .ok_or_else(|| tr!("el runtime no informó el resultado del sondeo"))?;
+        .filter_map(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+        .find(|v| {
+            v.get("event").and_then(|e| e.as_str()) == Some("probe")
+                && v.get("protocol_version").and_then(|n| n.as_u64()) == Some(2)
+        })
+        .ok_or_else(|| unreadable(tr!("el runtime no informó el resultado del sondeo")))?;
 
-    let v: serde_json::Value =
-        serde_json::from_str(line).map_err(|e| format!("JSON inválido: {e}"))?;
-
-    if v.get("ok").and_then(|o| o.as_bool()) != Some(true) {
-        let reason = v
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("desconocido");
-        return Err(reason.to_string());
+    let text = |key: &str| {
+        v.get(key)
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let missing: Vec<String> = v
+        .get("missing_capabilities")
+        .and_then(|m| m.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|n| n.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let verdict = text("verdict");
+    // Un `ok` que lista capacidades faltantes se contradice: no es ok.
+    if verdict != "ok" || !missing.is_empty() {
+        let verdict = if verdict == "ok" {
+            "capabilities_incomplete".to_string()
+        } else if verdict.is_empty() {
+            "unreadable".to_string()
+        } else {
+            verdict
+        };
+        return Err(ProbeRejection {
+            verdict,
+            reason: text("reason"),
+            missing_capabilities: missing,
+        });
     }
     Ok(CoreInfo {
         api: v.get("api").and_then(|a| a.as_u64()).unwrap_or(0) as u32,
-        name: v
-            .get("library_name")
-            .and_then(|s| s.as_str())
-            .unwrap_or("")
-            .to_string(),
-        version: v
-            .get("library_version")
-            .and_then(|s| s.as_str())
-            .unwrap_or("")
-            .to_string(),
-        extensions: v
-            .get("valid_extensions")
-            .and_then(|s| s.as_str())
-            .unwrap_or("")
+        name: text("library_name"),
+        version: text("library_version"),
+        extensions: text("valid_extensions")
             .split('|')
             .filter(|e| !e.is_empty())
             .map(|e| e.to_ascii_lowercase())
@@ -193,9 +226,19 @@ pub enum Verdict {
     NotACore(PathBuf),
     /// Es un core, pero de una API que este runtime no habla.
     ForeignApi { api: u32 },
+    /// Es un core libretro sin la observación AYTHER (ABI 1.10): un core de
+    /// fábrica en lugar del fork.
+    AbiMissing,
+    /// Tiene la observación AYTHER, pero le faltan capacidades.
+    CapabilitiesIncomplete(Vec<String>),
+    /// No contestó en el tiempo límite; Play lo detuvo (PQ-10).
+    Timeout,
     /// No se pudo ni sondear: falta el runtime, o murió sin decir nada.
     ProbeFailed(String),
 }
+
+/// Tiempo límite del sondeo (contrato v2, PQ-10).
+pub const PROBE_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Verdict {
     pub fn is_usable(&self) -> bool {
@@ -212,6 +255,11 @@ impl Verdict {
             Verdict::ForeignApi { .. } => {
                 tr!("El core usa una versión de libretro que no soportamos")
             }
+            Verdict::AbiMissing => tr!("El core no ofrece la observación AYTHER (ABI 1.10)."),
+            Verdict::CapabilitiesIncomplete(_) => {
+                tr!("El core no ofrece toda la observación AYTHER")
+            }
+            Verdict::Timeout => tr!("No se pudo comprobar el core: no respondió."),
             Verdict::ProbeFailed(_) => tr!("No se pudo comprobar el core"),
         }
     }
@@ -247,6 +295,17 @@ impl Verdict {
             Verdict::ForeignApi { api } => tr!(
                 "Este core habla la API {} y Ayther habla la 1. Actualizá el core.",
                 api
+            ),
+            Verdict::AbiMissing => tr!(
+                "Elegí el core de AYTHER (genesis_plus_gx_libretro_ayther_x64), no el de fábrica."
+            ),
+            Verdict::CapabilitiesIncomplete(missing) => tr!(
+                "El core no ofrece toda la observación AYTHER; faltan: {}.",
+                missing.join(", ")
+            ),
+            Verdict::Timeout => tr!(
+                "El core tardó más de {} s en cargar. Elegí otro archivo o revisá el que tenés.",
+                PROBE_TIME_LIMIT.as_secs()
             ),
             Verdict::ProbeFailed(d) => tr!("Revisá la instalación de Ayther. Detalle: {}", d),
         }
@@ -284,36 +343,109 @@ pub fn validate(runtime: &Path, core: &Path) -> Verdict {
         };
     }
 
-    let output = match std::process::Command::new(runtime)
-        .arg("--probe-core")
-        .arg(core)
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => {
+    let text = match run_probe(runtime, core, PROBE_TIME_LIMIT) {
+        ProbeRun::Output(text) => text,
+        ProbeRun::TimedOut => return Verdict::Timeout,
+        ProbeRun::CannotStart(e) => {
             return Verdict::ProbeFailed(tr!("no se pudo ejecutar {}: {}", runtime.display(), e));
         }
     };
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    match parse_probe(&text) {
+    verdict_of(parse_probe(&text), core)
+}
+
+/// El veredicto de un sondeo leído (contrato v2, plan §3.9).
+pub fn verdict_of(probe: Result<CoreInfo, ProbeRejection>, core: &Path) -> Verdict {
+    match probe {
         Ok(info) if info.api != API_LIBRETRO => Verdict::ForeignApi { api: info.api },
         Ok(info) => Verdict::Valid(info),
-        Err(reason) if reason == "no_es_libretro" => Verdict::NotACore(core.to_path_buf()),
-        Err(reason) if reason == "no_carga" => {
-            // Llegar acá con la arquitectura ya comprobada quiere decir que la
-            // DLL está pero le falta una dependencia (el runtime de VC, por
-            // ejemplo). Decirlo es la diferencia entre «no carga» y algo que se
-            // puede buscar.
-            Verdict::ProbeFailed(tr!(
-                "el sistema no pudo cargar la DLL; puede faltarle una dependencia"
-            ))
-        }
-        Err(reason) => Verdict::ProbeFailed(reason),
+        Err(r) => match r.verdict.as_str() {
+            "missing_file" => Verdict::Missing(core.to_path_buf()),
+            "wrong_architecture" => Verdict::ForeignArchitecture {
+                core: architecture_of(core).unwrap_or(Architecture::NotPe),
+                runtime: if cfg!(target_pointer_width = "64") {
+                    Architecture::X64
+                } else {
+                    Architecture::X86
+                },
+            },
+            "not_a_core" => Verdict::NotACore(core.to_path_buf()),
+            "abi_missing" => Verdict::AbiMissing,
+            "capabilities_incomplete" => Verdict::CapabilitiesIncomplete(r.missing_capabilities),
+            "timeout" => Verdict::Timeout,
+            _ if r.reason.is_empty() => Verdict::ProbeFailed(r.verdict),
+            _ => Verdict::ProbeFailed(r.reason),
+        },
     }
+}
+
+enum ProbeRun {
+    Output(String),
+    TimedOut,
+    CannotStart(std::io::Error),
+}
+
+/// `runtime --probe-core core` con tiempo límite. La salida se lee en hilos
+/// mientras el proceso corre: con la tubería llena, esperar al proceso sin
+/// leerla lo dejaría colgado aunque el core no lo estuviera.
+fn run_probe(runtime: &Path, core: &Path, limit: std::time::Duration) -> ProbeRun {
+    let mut command = std::process::Command::new(runtime);
+    command.arg("--probe-core").arg(core);
+    run_command(command, limit)
+}
+
+fn run_command(mut command: std::process::Command, limit: std::time::Duration) -> ProbeRun {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = match command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return ProbeRun::CannotStart(e),
+    };
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut bytes);
+            }
+            bytes
+        })
+    };
+    let out = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return ProbeRun::TimedOut;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            Err(e) => return ProbeRun::CannotStart(e),
+        }
+    }
+    let stdout = out.join().unwrap_or_default();
+    let stderr = err.join().unwrap_or_default();
+    ProbeRun::Output(format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    ))
 }
 
 #[cfg(test)]
@@ -364,11 +496,13 @@ mod tests {
         assert_eq!(pe_architecture(&b2), Architecture::NotPe);
     }
 
-    /// La salida real del runtime, con sus logs adelante.
+    /// La salida real del runtime, con sus logs adelante (contrato v2).
     const EXIT_OK: &str = "[Config] Loaded from C:\\Users\\x\\config.toml\n\
         [CoreLoader] Loaded: cores\\genesis_plus_gx_libretro_ayther_x64.dll\n\
-        AYTHER_STATUS {\"event\":\"probe\",\"ok\":true,\"api\":1,\
+        AYTHER_STATUS {\"protocol_version\":2,\"event\":\"probe\",\"ok\":true,\"verdict\":\"ok\",\"api\":1,\
         \"library_name\":\"Genesis Plus GX\",\"library_version\":\"v1.7.4 752a6ff7\",\
+        \"ayther_abi\":\"1.10\",\"capabilities\":\"0xEFFFF\",\"required_capabilities\":\"0xEFFFF\",\
+        \"missing_capabilities\":[],\"loaded\":true,\
         \"valid_extensions\":\"m3u|mdx|md|smd|gen|bin|cue|iso|chd|bms|sms|gg|sg|68k|sgd\"}\n";
 
     #[test]
@@ -392,14 +526,113 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_probe_returns_its_reason_and_not_an_empty_core() {
-        let s = "AYTHER_STATUS {\"event\":\"probe\",\"ok\":false,\"reason\":\"no_es_libretro\"}\n";
-        assert_eq!(parse_probe(s), Err("no_es_libretro".into()));
+    fn a_failed_probe_returns_its_verdict_and_not_an_empty_core() {
+        let s = "AYTHER_STATUS {\"protocol_version\":2,\"event\":\"probe\",\"ok\":false,\
+                 \"verdict\":\"not_a_core\",\"reason\":\"core.invalid\"}\n";
+        let r = parse_probe(s).unwrap_err();
+        assert_eq!(
+            (r.verdict.as_str(), r.reason.as_str()),
+            ("not_a_core", "core.invalid")
+        );
         // Sin línea de sondeo: el runtime murió antes de decir nada. No puede
         // leerse como «core válido con nombre vacío».
-        assert!(parse_probe("[CoreLoader] boom\n").is_err());
-        // Y un evento que no es el sondeo tampoco cuenta.
-        assert!(parse_probe("AYTHER_STATUS {\"event\":\"ready\"}\n").is_err());
+        assert_eq!(
+            parse_probe("[CoreLoader] boom\n").unwrap_err().verdict,
+            "unreadable"
+        );
+        // Un evento que no es el sondeo tampoco cuenta.
+        assert!(
+            parse_probe("AYTHER_STATUS {\"protocol_version\":2,\"event\":\"ready\"}\n").is_err()
+        );
+        // Ni un sondeo del protocolo anterior, que no dice veredicto.
+        let v1 = "AYTHER_STATUS {\"event\":\"probe\",\"ok\":true,\"api\":1}\n";
+        assert_eq!(parse_probe(v1).unwrap_err().verdict, "unreadable");
+        // Un ok que lista faltantes se contradice: no es ok.
+        let odd = "AYTHER_STATUS {\"protocol_version\":2,\"event\":\"probe\",\"ok\":true,\
+                   \"verdict\":\"ok\",\"api\":1,\"missing_capabilities\":[\"RASTER_V1\"]}\n";
+        assert_eq!(
+            parse_probe(odd).unwrap_err().verdict,
+            "capabilities_incomplete"
+        );
+    }
+
+    /// Spec 008 (plan §3.9, TP-310.2): los ocho vectores del contrato de sondeo
+    /// v2 con la salida que escribe `ayther_runtime --probe-core`. `timeout` lo
+    /// pone el padre: no hay línea que leer.
+    #[test]
+    fn the_eight_probe_vectors_give_their_verdicts() {
+        let line = |body: &str| {
+            format!(
+                "[CoreLoader] log\nAYTHER_STATUS {{\"protocol_version\":2,\"event\":\"probe\",{body}}}\n"
+            )
+        };
+        let core = Path::new("C:/cores/x.dll");
+        let ok_body = "\"ok\":true,\"verdict\":\"ok\",\"api\":1,\"library_name\":\"AYTHER test core\",\
+                       \"library_version\":\"1\",\"ayther_abi\":\"1.10\",\"capabilities\":\"0xEFFFF\",\
+                       \"required_capabilities\":\"0xEFFFF\",\"missing_capabilities\":[],\"loaded\":true,\
+                       \"valid_extensions\":\"md|bin\"";
+        // 1-2. gpgx r4 x64 y ayther_test_core: ok.
+        for _ in ["gpgx_r4_x64", "ayther_test_core"] {
+            assert!(matches!(
+                verdict_of(parse_probe(&line(ok_body)), core),
+                Verdict::Valid(_)
+            ));
+        }
+        // 3. Ruta inexistente.
+        let missing = line(
+            "\"ok\":false,\"verdict\":\"missing_file\",\"reason\":\"core.missing\",\"loaded\":false",
+        );
+        assert!(matches!(
+            verdict_of(parse_probe(&missing), core),
+            Verdict::Missing(_)
+        ));
+        // 4. x86.
+        let x86 = line(
+            "\"ok\":false,\"verdict\":\"wrong_architecture\",\"reason\":\"core.wrong_architecture\",\"architecture\":\"x86\"",
+        );
+        assert!(matches!(
+            verdict_of(parse_probe(&x86), core),
+            Verdict::ForeignArchitecture { .. }
+        ));
+        // 5. Archivo de texto.
+        let text = line("\"ok\":false,\"verdict\":\"not_a_core\",\"reason\":\"core.invalid\"");
+        assert!(matches!(
+            verdict_of(parse_probe(&text), core),
+            Verdict::NotACore(_)
+        ));
+        // 6. Core de fábrica.
+        let stock = line(
+            "\"ok\":false,\"verdict\":\"abi_missing\",\"reason\":\"core.abi_missing\",\"api\":1,\"loaded\":true",
+        );
+        assert_eq!(verdict_of(parse_probe(&stock), core), Verdict::AbiMissing);
+        // 7. Capacidades incompletas.
+        let partial = line(
+            "\"ok\":false,\"verdict\":\"capabilities_incomplete\",\
+                            \"reason\":\"core.capabilities_incomplete\",\"ayther_abi\":\"1.10\",\
+                            \"capabilities\":\"0x6FFFF\",\"missing_capabilities\":[\"SPRITE_OUTCOME_V1\"]",
+        );
+        let v = verdict_of(parse_probe(&partial), core);
+        assert_eq!(
+            v,
+            Verdict::CapabilitiesIncomplete(vec!["SPRITE_OUTCOME_V1".into()])
+        );
+        assert!(v.remedy().contains("SPRITE_OUTCOME_V1"), "{}", v.remedy());
+        // 8. Hang: lo pone el padre.
+        assert!(!Verdict::Timeout.is_usable());
+        assert_eq!(PROBE_TIME_LIMIT, std::time::Duration::from_secs(10));
+    }
+
+    /// El padre detiene un sondeo que no termina (PQ-10). Se prueba con un
+    /// proceso que espera 30 s: lo que se verifica es el límite, no un core.
+    #[cfg(windows)]
+    #[test]
+    fn a_probe_that_does_not_answer_is_stopped_at_the_limit() {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/c", "ping", "-n", "30", "127.0.0.1"]);
+        let started = std::time::Instant::now();
+        let run = run_command(command, std::time::Duration::from_millis(500));
+        assert!(matches!(run, ProbeRun::TimedOut), "tenía que cortarse");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     #[test]
@@ -412,6 +645,9 @@ mod tests {
             },
             Verdict::NotACore(PathBuf::from("SDL3.dll")),
             Verdict::ForeignApi { api: 2 },
+            Verdict::AbiMissing,
+            Verdict::CapabilitiesIncomplete(vec!["RASTER_V1".into()]),
+            Verdict::Timeout,
             Verdict::ProbeFailed("boom".into()),
         ];
         for v in rejected_verdicts {
