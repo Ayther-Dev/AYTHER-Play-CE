@@ -203,6 +203,9 @@ pub struct State {
     /// exactamente el mismo, que es el punto: dos selectores de carpeta
     /// distintos serían dos comportamientos distintos para la misma decisión.
     pub single_step_mode: bool,
+    /// Spec 008 (RF-9.2, TP-310.5): el núcleo elegido en el paso «Core». Con
+    /// Tessera no hay archivo que elegir y el paso no traba.
+    pub provider: crate::config::CoreProvider,
     /// El explorador está abierto encima del paso.
     pub browsing: bool,
     /// Dónde está parado el explorador, qué busca y qué se ve.
@@ -225,6 +228,7 @@ impl Default for State {
             terms_accepted_at: None,
             first_run: false,
             single_step_mode: false,
+            provider: crate::config::CoreProvider::NEW_INSTALL,
             browsing: false,
             explorer_dir: PathBuf::new(),
             explorer_folder_mode: true,
@@ -268,6 +272,7 @@ impl State {
             roms_per_folder: roms,
             core,
             verdict,
+            provider: cfg.core_provider,
             terms_accepted: terms_are_current(cfg),
             terms_accepted_at: if terms_are_current(cfg) {
                 cfg.terms_date.clone()
@@ -296,6 +301,7 @@ impl State {
                     None
                 }
             }
+            Step::Core if self.provider == crate::config::CoreProvider::Tessera => None,
             Step::Core => match &self.verdict {
                 Some(v) if v.is_usable() => None,
                 Some(v) => Some(v.remedy()),
@@ -482,14 +488,23 @@ impl State {
             // Agregar es «A»; el secundario saca la que está enfocada. Con la
             // lista vacía no hay nada que sacar y el botón no aparece.
             Step::Folders if !self.folders.is_empty() => tr!("Quitar"),
+            // Spec 008 (TP-310.5): «Y» alterna el núcleo.
+            Step::Core => tr!("Cambiar núcleo"),
             _ => String::new(),
         }
+    }
+
+    /// El otro núcleo. El archivo elegido y su veredicto se conservan: volver a
+    /// «Core externo» no obliga a buscarlo de nuevo.
+    pub fn toggle_provider(&mut self) {
+        self.provider = crate::settings::next_provider(self.provider);
     }
 
     /// ¿El core elegido sirve? Una pregunta y no tres `matches!` repartidos:
     /// de ella dependen qué dice «A», qué dice «X» y si el paso traba.
     pub fn core_is_usable(&self) -> bool {
-        matches!(&self.verdict, Some(v) if v.is_usable())
+        self.provider == crate::config::CoreProvider::Tessera
+            || matches!(&self.verdict, Some(v) if v.is_usable())
     }
 
     /// Qué dice «A» en este paso.
@@ -519,7 +534,12 @@ impl State {
     pub fn step_action_label(&self) -> String {
         match self.step {
             Step::Folders if !self.folders.is_empty() => tr!("Agregar"),
-            Step::Core if self.core_is_usable() => tr!("Elegir otro"),
+            Step::Core
+                if self.core_is_usable()
+                    && self.provider == crate::config::CoreProvider::External =>
+            {
+                tr!("Elegir otro")
+            }
             _ => String::new(),
         }
     }
@@ -529,8 +549,10 @@ impl State {
         if self.browsing {
             return;
         }
-        if self.step == Step::Folders {
-            self.remove_folder(row);
+        match self.step {
+            Step::Folders => self.remove_folder(row),
+            Step::Core => self.toggle_provider(),
+            _ => {}
         }
     }
 
@@ -585,8 +607,10 @@ impl State {
         }
         match self.step {
             Step::Folders => self.open_explorer(true),
-            Step::Core => self.open_explorer(false),
-            Step::Welcome | Step::Gamepads | Step::Terms | Step::Summary => {}
+            Step::Core if self.provider == crate::config::CoreProvider::External => {
+                self.open_explorer(false)
+            }
+            Step::Core | Step::Welcome | Step::Gamepads | Step::Terms | Step::Summary => {}
         }
     }
 
@@ -645,6 +669,9 @@ impl State {
         let language = language_name(&self.language);
         let folders = tr!("{} · {} juegos", self.folders.len(), self.total_roms());
         let core = match &self.verdict {
+            _ if self.provider == crate::config::CoreProvider::Tessera => {
+                crate::settings::provider_label(self.provider)
+            }
             Some(Verdict::Valid(i)) => {
                 let p: Vec<String> = i.platforms().into_iter().collect();
                 if p.is_empty() {
@@ -687,7 +714,12 @@ impl State {
         if let Some(first_item) = self.folders.first() {
             cfg.rom_dir = first_item.clone();
         }
-        if let Some(core) = &self.core {
+        // Spec 008 (RF-9.4): el núcleo elegido. Con Tessera el archivo del core
+        // externo que hubiera se conserva: volver a «Core externo» lo recupera.
+        cfg.core_provider = self.provider;
+        if let Some(core) = &self.core
+            && self.provider == crate::config::CoreProvider::External
+        {
             cfg.default_core = core.clone();
             // Y el core queda anotado para cada plataforma que declara servir:
             // es lo que hace que una biblioteca de varias consolas arranque sin
@@ -724,7 +756,8 @@ pub fn required_step(cfg: &Config) -> Option<Step> {
     if !terms_are_current(cfg) {
         return Some(Step::Terms);
     }
-    if !cfg.default_core.exists() {
+    // Con Tessera no hay archivo que pueda faltar.
+    if cfg.core_provider == crate::config::CoreProvider::External && !cfg.default_core.exists() {
         return Some(Step::Core);
     }
     if crate::config::rom_folders(cfg).iter().all(|d| !d.exists()) {
@@ -816,6 +849,39 @@ mod tests {
 
     /// Un core que no valida traba el paso, y el motivo que se muestra es el
     /// remedio del veredicto — no un «no se puede continuar» genérico.
+    /// Spec 008 (TP-310.5): el paso «Core» según el núcleo elegido.
+    #[test]
+    fn the_core_step_follows_the_chosen_core() {
+        use crate::config::CoreProvider;
+        let mut e = ready();
+        e.step = Step::Core;
+        e.core = None;
+        e.verdict = None;
+        e.provider = CoreProvider::External;
+        // Core externo sin archivo: traba, y «A» busca el archivo.
+        assert!(!e.can_advance());
+        assert_eq!(e.primary_action_label(), "Elegir core");
+        assert_eq!(e.secondary_action_label(), "Cambiar núcleo");
+        // «Y» pasa a Tessera: no hay archivo que elegir y el paso no traba.
+        e.secondary_action(0);
+        assert_eq!(e.provider, CoreProvider::Tessera);
+        assert!(e.can_advance() && e.core_is_usable());
+        assert!(e.step_action_label().is_empty());
+        e.step_action();
+        assert!(!e.browsing, "con Tessera «X» no abre el explorador");
+        assert!(e.summary()[2].1.contains("Tessera"));
+        // Se guarda el núcleo y el archivo anterior no se pisa.
+        let mut c = cfg();
+        c.default_core = PathBuf::from("C:/cores/old.dll");
+        e.apply_at(&mut c, WHEN);
+        assert_eq!(c.core_provider, CoreProvider::Tessera);
+        assert_eq!(c.default_core, PathBuf::from("C:/cores/old.dll"));
+        // Con Tessera, un core externo que no existe no reabre el wizard.
+        assert_ne!(required_step(&c), Some(Step::Core));
+        c.core_provider = CoreProvider::External;
+        assert_eq!(required_step(&c), Some(Step::Core));
+    }
+
     #[test]
     fn an_invalid_core_jams_the_step_with_its_own_remedy() {
         let mut e = ready();

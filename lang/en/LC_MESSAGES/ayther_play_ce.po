@@ -1398,3 +1398,13 @@ msgstr "Tessera (Experimental) · External core"
 #: ui/appwindow.slint
 msgid "Archivo del core (obligatorio)"
 msgstr "Core file (required)"
+
+msgid "Cambiar núcleo"
+msgstr "Change core"
+
+msgid "Viene incluido · Mega Drive"
+msgstr "Built in · Mega Drive"
+
+#: ui/appwindow.slint
+msgid "Núcleo de emulación: {}"
+msgstr "Emulation core: {}"

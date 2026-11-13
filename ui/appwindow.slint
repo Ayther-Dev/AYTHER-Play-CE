@@ -2254,6 +2254,8 @@ export component AppWindow inherits Window {
     /// teclas muertas.
     in     property <[PadHint]> onboarding-hints:       [];
     in     property <string>   onboarding-gamepad:          "";
+    // Spec 008 (TP-310.5): el núcleo elegido en el paso «Core».
+    in     property <string>   onboarding-provider:     "";
     in     property <string>   onboarding-core:         "";
     in     property <string>   onboarding-core-detail:  "";
     /// Qué pasó con el core, en un renglón. Sale del veredicto (`titulo()`), y
@@ -5605,6 +5607,13 @@ export component AppWindow inherits Window {
                             // -- Paso 4: el core, con su semáforo -----------
                             if onboarding-step == 3: VerticalLayout {
                                 spacing: 16px;
+                                // Spec 008 (TP-310.5): qué núcleo; «Y» lo cambia.
+                                Text {
+                                    text: @tr("Núcleo de emulación: {}", root.onboarding-provider);
+                                    color: Tokens.text-normal;
+                                    font-family: Tokens.font-ui; font-size: Tokens.text-body;
+                                    font-weight: 500;
+                                }
                                 // CoreRow del diseño: el `cpu` del color del
                                 // veredicto, el nombre en mono (es un archivo),
                                 // el detalle abajo y el semáforo a la derecha.

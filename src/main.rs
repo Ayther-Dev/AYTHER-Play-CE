@@ -3545,6 +3545,17 @@ fn refresh_onboarding(app: &AppWindow, e: &onboarding::State) {
         }
     }
 
+    // Spec 008 (TP-310.5): el núcleo elegido, y con Tessera no hay archivo:
+    // el renglón del core lo nombra y queda en verde.
+    app.set_onboarding_provider(settings::provider_label(e.provider).as_str().into());
+    if e.provider == config::CoreProvider::Tessera {
+        app.set_onboarding_core(tr!("Tessera (Experimental)").into());
+        app.set_onboarding_core_state("ok".into());
+        app.set_onboarding_core_title("".into());
+        app.set_onboarding_core_remedy("".into());
+        app.set_onboarding_core_detail(tr!("Viene incluido · Mega Drive").into());
+    }
+
     // #627 — la carpeta se marca con el ICONO `folder`, que es lo que pide el
     // diseño. Antes era una barra final en el nombre: no habia fuente de iconos
     // vendorizada y un glifo geometrico de IBM Plex salia tofu — una columna de

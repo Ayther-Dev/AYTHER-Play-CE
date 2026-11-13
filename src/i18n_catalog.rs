@@ -10,6 +10,9 @@ pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
     match lang {
         "en" => match msgid {
             "Jugar original" => Some("Play original"),
+            "Cambiar núcleo" => Some("Change core"),
+            "Viene incluido · Mega Drive" => Some("Built in · Mega Drive"),
+            "Núcleo de emulación: {}" => Some("Emulation core: {}"),
             "Tessera (Experimental)" => Some("Tessera (Experimental)"),
             "Core externo" => Some("External core"),
             "No hace falta: Tessera viene incluido." => Some("Not needed: Tessera is built in."),
