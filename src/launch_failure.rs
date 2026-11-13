@@ -13,6 +13,10 @@ pub struct Notice {
     pub title: String,
     pub explanation: String,
     pub pack_rejected: bool,
+    /// Spec 008 (RF-4.1, TP-310.7): the save state is from another emulator
+    /// generation. The dialog offers «Empezar sin estado» instead of the safe
+    /// mode: the same game and configuration, from the start.
+    pub state_incompatible: bool,
 }
 
 impl Failure {
@@ -47,6 +51,7 @@ impl Failure {
                         | "core.invalid"
                         | "cli.invalid_argument"
                         | "protocol.incompatible"
+                        | "state.generation_mismatch"
                 ) =>
             {
                 self.reason.clone_from(reason);
@@ -79,6 +84,7 @@ impl Failure {
             self.reason.as_str(),
             "pack.open_failed" | "pack.trust_registry_invalid"
         );
+        let state_incompatible = self.reason == "state.generation_mismatch";
         let (title, explanation) = match self.reason.as_str() {
             "runtime.reservation_unsupported" => (
                 tr!("Actualizá el motor de juego"),
@@ -125,6 +131,12 @@ impl Failure {
                     "El emulador elegido no se pudo abrir. Revisá el core de esta consola en Ajustes y comprobá que sus archivos estén disponibles."
                 ),
             ),
+            "state.generation_mismatch" => (
+                tr!("El guardado es de otro núcleo de emulación"),
+                tr!(
+                    "Este estado se guardó con otro núcleo de emulación y no se puede cargar con el actual. Podés empezar sin el estado; el guardado queda en el disco."
+                ),
+            ),
             "runtime.spawn_failed" | "protocol.incompatible" => (
                 tr!("No se pudo iniciar el juego"),
                 tr!(
@@ -148,6 +160,7 @@ impl Failure {
             title,
             explanation,
             pack_rejected,
+            state_incompatible,
         }
     }
 
@@ -221,6 +234,31 @@ mod tests {
         assert!(!failure.explicit_error);
         failure.finish(Some(4), "invalid archive");
         assert!(!failure.notice().title.contains("firma"));
+    }
+
+    /// Spec 008 (TP-310.7): exit 65 after `state.generation_mismatch` is the
+    /// incompatible state, not an incompatible Runtime, and offers to start
+    /// without it.
+    #[test]
+    fn a_state_from_another_generation_offers_starting_without_it() {
+        let mut failure = Failure::default();
+        failure.observe(&RuntimeEvent::Warning {
+            reason: "state.generation_mismatch".into(),
+            message: "el guardado es de gpgx / 1 y la sesion corre tessera / 1".into(),
+            audio: Default::default(),
+        });
+        failure.finish(Some(65), "");
+        let notice = failure.notice();
+        assert_eq!(failure.reason, "state.generation_mismatch");
+        assert!(notice.state_incompatible);
+        assert!(!notice.pack_rejected);
+        assert!(notice.title.contains("otro núcleo"));
+        assert!(notice.explanation.contains("empezar sin el estado"));
+        // Exit 65 without that warning is still an incompatible Runtime.
+        let mut plain = Failure::default();
+        plain.finish(Some(65), "");
+        assert_eq!(plain.reason, "protocol.incompatible");
+        assert!(!plain.notice().state_incompatible);
     }
 
     #[test]

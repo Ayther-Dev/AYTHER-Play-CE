@@ -1883,7 +1883,13 @@ export component AppWindow inherits Window {
     in property <string>     crash-title: "";
     in property <string>     crash-explanation: "";
     in property <bool>       crash-pack-rejected: false;
+    // Spec 008 (TP-310.7): the save state is from another emulator generation.
+    // The way out is the same game from the start, not the safe mode.
+    in property <bool>       crash-state-incompatible: false;
+    // The entry last launched: «Empezar sin estado» relaunches it clean.
+    in-out property <GameEntry> crash-game;
     callback crash-safe-mode();
+    callback crash-start-without-state();
 
     in-out property <bool>   orphan-open: false;
     in property <string>     orphan-text: "";
@@ -2003,7 +2009,7 @@ export component AppWindow inherits Window {
         { key: "B", icon: "", label: @tr("Cerrar") },
     ];
     property <[PadHint]> hints-crash: [
-        { key: "A", icon: "", label: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro") },
+        { key: "A", icon: "", label: root.crash-state-incompatible ? @tr("Empezar sin estado") : root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro") },
         { key: "B", icon: "", label: @tr("Cerrar") },
     ];
     property <[PadHint]> hints-orphan: [
@@ -4412,9 +4418,12 @@ export component AppWindow inherits Window {
         y: Shell.topbar + (parent.height - Shell.topbar - Shell.footer - self.height) / 2;
         title: root.crash-title;
         left-button-label: @tr("Cerrar");
-        right-button-label: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro");
+        right-button-label: root.crash-state-incompatible ? @tr("Empezar sin estado") : root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro");
         left-clicked => { root.crash-open = false; }
-        right-clicked => { root.crash-safe-mode(); root.crash-open = false; }
+        right-clicked => {
+            root.crash-open = false;
+            if (root.crash-state-incompatible) { root.crash-start-without-state(); } else { root.crash-safe-mode(); }
+        }
         Text {
             text: root.crash-explanation;
             color: Tokens.text-normal;
@@ -4422,8 +4431,8 @@ export component AppWindow inherits Window {
             wrap: word-wrap; width: 704px;
         }
         TenFootAlert {
-            title: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Reiniciar en modo seguro");
-            detail: @tr("Se lanza sin pack, sin shaders y sin overrides. La ROM y tus guardados quedan intactos.");
+            title: root.crash-state-incompatible ? @tr("Empezar sin estado") : root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Reiniciar en modo seguro");
+            detail: root.crash-state-incompatible ? @tr("Se lanza el mismo juego con la misma configuración, desde el principio. El guardado no se borra.") : @tr("Se lanza sin pack, sin shaders y sin overrides. La ROM y tus guardados quedan intactos.");
         }
         Text {
             text: root.crash-detail;

@@ -1058,6 +1058,24 @@ fn main() {
         }
     });
 
+    // Spec 008 (TP-310.7): the Runtime refused a state saved by another
+    // emulator generation (exit 65, `state.generation_mismatch`). The way out
+    // is the same game, same configuration, from the start: the clean run of
+    // the library («Partida nueva»), which does not pass --load-state. The
+    // save stays on disk.
+    app.on_crash_start_without_state({
+        let weak = app.as_weak();
+        move || {
+            let Some(app) = weak.upgrade() else { return };
+            let game = app.get_crash_game();
+            if game.path.is_empty() {
+                return;
+            }
+            app.set_clean_run(true);
+            app.invoke_launch_entry(game);
+        }
+    });
+
     app.on_exit_safe_mode({
         let weak = app.as_weak();
         move || {
@@ -2278,6 +2296,7 @@ fn main() {
             let Some(app) = weak.upgrade() else { return };
             if app.get_playing() || PREPARING.swap(true, Ordering::AcqRel) { return; }
             PREPARE_CANCEL.store(false, Ordering::Release);
+            app.set_crash_game(entry.clone());
             let configuration = cfg.lock().unwrap().clone();
             let rom = std::path::PathBuf::from(entry.path.as_str());
             let pack = entry.has_pack.then(|| std::path::PathBuf::from(entry.pack_path.as_str())).filter(|p| !p.as_os_str().is_empty());
@@ -2864,6 +2883,7 @@ fn main() {
                             app.set_crash_title(failure_notice.title.into());
                             app.set_crash_explanation(failure_notice.explanation.into());
                             app.set_crash_pack_rejected(failure_notice.pack_rejected);
+                            app.set_crash_state_incompatible(failure_notice.state_incompatible);
                             app.set_crash_detail(crash_txt.as_str().into());
                             app.set_crash_open(true);
                         }
@@ -4559,7 +4579,11 @@ fn apply_effect(app: &AppWindow, ef: pad_router::Effect) {
         }
         SafeMode => {
             app.set_crash_open(false);
-            app.invoke_crash_safe_mode();
+            if app.get_crash_state_incompatible() {
+                app.invoke_crash_start_without_state();
+            } else {
+                app.invoke_crash_safe_mode();
+            }
         }
         CloseCrash => app.set_crash_open(false),
         PlayFromDetails => app.invoke_details_play(),
