@@ -2650,9 +2650,10 @@ fn main() {
             };
 
             let trust_registry = cfg.lock().unwrap().pack_trust_registry(p.pack.as_deref()).map(std::path::Path::to_path_buf);
+            let provider = cfg.lock().unwrap().core_provider;
             spawn::launch(spawn::LaunchRequest {
                           reservations: &p.reservations,
-                          runtime: &runtime, core: &core, rom: &p.rom,
+                          runtime: &runtime, provider, core: &core, rom: &p.rom,
                           pack: p.pack.as_deref(), game_name: name,
                           trust_registry: trust_registry.as_deref(),
                           cfg: Some(&effective_launch_config), manifest: manifest_path.as_deref(),
