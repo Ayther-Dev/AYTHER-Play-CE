@@ -19,8 +19,69 @@ fn default_log() -> String {
     "info".into()
 }
 
+/// Spec 008 (RF-9.4): versión de `play_config.toml` que escribe este Play. Un
+/// archivo sin `config_version` es la 1 y se migra al cargar; uno con una
+/// versión mayor se conserva como `play_config.toml.unreadable` y se usan los
+/// valores por defecto.
+pub const CONFIG_VERSION: u32 = 2;
+
+/// Spec 008 (RF-9.1): qué emula los juegos. `External` es un core libretro
+/// (`default_core`); `Tessera` es el núcleo nativo del Runtime, sin archivo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CoreProvider {
+    #[default]
+    External,
+    Tessera,
+}
+
+impl CoreProvider {
+    /// Proveedor de una instalación NUEVA: `external` hasta el gate G3 (RF-9.8).
+    /// Las configuraciones migradas quedan explícitas y no siguen este valor.
+    pub const NEW_INSTALL: CoreProvider = CoreProvider::External;
+}
+
+/// Un valor desconocido no deja ilegible el archivo entero (#588): cae a
+/// `external`, con aviso, y el resto de la configuración se conserva.
+fn lenient_core_provider<'de, D>(deserializer: D) -> Result<CoreProvider, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    Ok(match value.as_str() {
+        "external" => CoreProvider::External,
+        "tessera" => CoreProvider::Tessera,
+        other => {
+            crate::log_warning!(
+                "config",
+                "core_provider = {other:?} no es external/tessera; se usa external"
+            );
+            CoreProvider::External
+        }
+    })
+}
+
+/// Lo que encontró `Config::load_from` (diagnóstico y pruebas).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadOrigin {
+    Created,
+    Read,
+    Migrated,
+    Unreadable,
+    NewerVersion,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Spec 008 (RF-9.4): versión del archivo; 0 = escrito antes de la 2.
+    #[serde(default)]
+    pub config_version: u32,
+
+    /// Spec 008 (RF-9.1): `external` o `tessera`. Un archivo anterior no lo
+    /// tiene y se migra a `external` explícito.
+    #[serde(default, deserialize_with = "lenient_core_provider")]
+    pub core_provider: CoreProvider,
+
     /// Directory to scan for ROMs.
     ///
     /// #588 — quedó como la carpeta PRINCIPAL (la primera de `rom_dirs`). Sigue
@@ -177,11 +238,45 @@ impl Config {
     }
     /// Load from the platform config directory, or build sensible defaults.
     pub fn load() -> Self {
-        let config_path = Self::config_file();
+        Self::load_from(&Self::config_file()).0
+    }
+
+    /// `load` sobre una ruta dada, con lo que encontró (spec 008, RF-9.4): un
+    /// archivo de la versión 1 se migra y se escribe; uno de una versión mayor
+    /// se copia a `.unreadable` y se usan los valores por defecto; uno ilegible
+    /// también, como hasta ahora.
+    pub fn load_from(config_path: &Path) -> (Self, LoadOrigin) {
         if config_path.exists() {
-            match std::fs::read_to_string(&config_path) {
+            match std::fs::read_to_string(config_path) {
                 Ok(text) => match toml::from_str::<Config>(&text) {
-                    Ok(cfg) => return cfg,
+                    Ok(mut cfg) => {
+                        if cfg.config_version > CONFIG_VERSION {
+                            let mut backup = config_path.as_os_str().to_owned();
+                            backup.push(".unreadable");
+                            let backup = PathBuf::from(backup);
+                            let _ = std::fs::copy(config_path, &backup);
+                            crate::log_warning!(
+                                "config",
+                                "{} tiene config_version {} (este Play lee {CONFIG_VERSION}); se usan valores por defecto (copia en {})",
+                                config_path.display(),
+                                cfg.config_version,
+                                backup.display()
+                            );
+                            return (Self::defaults(), LoadOrigin::NewerVersion);
+                        }
+                        if cfg.config_version < CONFIG_VERSION {
+                            cfg.migrate_to_v2();
+                            if let Err(e) = cfg.try_save_to(config_path) {
+                                crate::log_warning!(
+                                    "config",
+                                    "no se pudo escribir la migración de {}: {e}",
+                                    config_path.display()
+                                );
+                            }
+                            return (cfg, LoadOrigin::Migrated);
+                        }
+                        return (cfg, LoadOrigin::Read);
+                    }
                     // #588 — esto se comía en silencio, y el silencio es el
                     // problema: una coma de más en el TOML dejaba a Play
                     // corriendo con rutas por defecto, sin biblioteca y sin
@@ -197,9 +292,29 @@ impl Config {
                     crate::log_warning!("config", "no se pudo abrir {}: {e}", config_path.display())
                 }
             }
+            return (Self::defaults(), LoadOrigin::Unreadable);
         }
         // First run / missing config → defaults.
-        Self::defaults()
+        (Self::defaults(), LoadOrigin::Created)
+    }
+
+    /// Spec 008 (plan §3.8): la versión 1 sólo conocía cores externos. Queda
+    /// `core_provider = "external"` explícito; si `cores` tenía entradas,
+    /// `default_core` toma la de Mega Drive o la primera, y `cores` se vacía.
+    fn migrate_to_v2(&mut self) {
+        self.config_version = CONFIG_VERSION;
+        self.core_provider = CoreProvider::External;
+        if !self.cores.is_empty() {
+            let chosen = self
+                .cores
+                .get(MEGA_DRIVE)
+                .or_else(|| self.cores.values().next())
+                .cloned();
+            if let Some(core) = chosen {
+                self.default_core = core;
+            }
+            self.cores.clear();
+        }
     }
 
     /// Dónde está el runtime, de verdad.
@@ -306,17 +421,19 @@ impl Config {
     /// apunta a la configuración del jugador, y un test que la pisara sería
     /// peor que no tener test.
     pub fn save_to(&self, path: &Path) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = self.try_save_to(path) {
+            eprintln!("[config] save failed: {e}");
         }
-        match toml::to_string_pretty(self) {
-            Ok(text) => {
-                if let Err(e) = std::fs::write(path, text) {
-                    eprintln!("[config] save failed: {e}");
-                }
-            }
-            Err(e) => eprintln!("[config] serialize failed: {e}"),
-        }
+    }
+
+    /// Spec 008 (RF-9.4): escritura atómica (temporal + reemplazo, como
+    /// `saves::write_atomic`): un corte a mitad deja el archivo anterior entero.
+    pub fn try_save_to(&self, path: &Path) -> std::io::Result<()> {
+        let mut versioned = self.clone();
+        versioned.config_version = CONFIG_VERSION;
+        let text = toml::to_string_pretty(&versioned)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        crate::saves::write_atomic(path, text.as_bytes())
     }
 
     // ---- Paths ---------------------------------------------------------------
@@ -347,6 +464,8 @@ impl Config {
             .join("Ayther");
 
         Config {
+            config_version: CONFIG_VERSION,
+            core_provider: CoreProvider::NEW_INSTALL,
             language: default_language(),
             rom_dir: exe_dir.join("roms"),
             runtime_path: exe_dir.join(if cfg!(windows) {
@@ -385,6 +504,9 @@ impl Config {
         }
     }
 }
+
+/// Nombre de plataforma de Mega Drive tal como lo escribe la biblioteca.
+pub const MEGA_DRIVE: &str = "Mega Drive";
 
 /// Las carpetas de ROM a escanear (#588).
 ///
@@ -716,6 +838,161 @@ covers_dir = "covers"
             cfg.display()
         );
         assert_eq!(cfg.file_name().unwrap(), "play_config.toml");
+    }
+
+    // ---- Spec 008 (RF-9.4, TP-310.1): play_config.toml v2 -------------------
+
+    const V1: &str = r#"
+rom_dir = "D:/ROMs"
+runtime_path = "ayther_runtime.exe"
+default_core = "C:/cores/genesis_plus_gx_libretro.dll"
+lib_path = "library.json"
+packs_install_dir = "packs"
+saves_dir = "saves"
+feedback_dir = "feedback"
+covers_dir = "covers"
+
+[cores]
+SNES = "C:/cores/snes9x.dll"
+"Mega Drive" = "C:/cores/genesis_plus_gx_libretro_ayther_x64.dll"
+"#;
+
+    const V1_NO_CORES: &str = r#"
+rom_dir = "D:/ROMs"
+runtime_path = "ayther_runtime.exe"
+default_core = "cores/gpgx.dll"
+lib_path = "library.json"
+packs_install_dir = "packs"
+saves_dir = "saves"
+feedback_dir = "feedback"
+covers_dir = "covers"
+"#;
+
+    #[test]
+    fn a_new_install_is_version_2_with_the_g3_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("play_config.toml");
+        let (cfg, origin) = Config::load_from(&path);
+        assert_eq!(origin, LoadOrigin::Created);
+        assert_eq!(cfg.config_version, CONFIG_VERSION);
+        assert_eq!(cfg.core_provider, CoreProvider::NEW_INSTALL);
+        assert_eq!(
+            CoreProvider::NEW_INSTALL,
+            CoreProvider::External,
+            "hasta G3"
+        );
+    }
+
+    #[test]
+    fn version_1_migrates_to_explicit_external_and_empties_cores() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("play_config.toml");
+        std::fs::write(&path, V1).unwrap();
+        let (cfg, origin) = Config::load_from(&path);
+        assert_eq!(origin, LoadOrigin::Migrated);
+        assert_eq!(cfg.core_provider, CoreProvider::External);
+        assert_eq!(
+            cfg.default_core,
+            PathBuf::from("C:/cores/genesis_plus_gx_libretro_ayther_x64.dll"),
+            "default_core toma la de Mega Drive"
+        );
+        assert!(cfg.cores.is_empty(), "cores se escribe vacío");
+        assert_eq!(
+            cfg.rom_dir,
+            PathBuf::from("D:/ROMs"),
+            "el resto se conserva"
+        );
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("config_version = 2"), "{text}");
+        assert!(text.contains(r#"core_provider = "external""#), "{text}");
+        let (again, origin) = Config::load_from(&path);
+        assert_eq!(origin, LoadOrigin::Read, "la segunda lectura ya es v2");
+        assert_eq!(again.default_core, cfg.default_core);
+    }
+
+    #[test]
+    fn migration_without_mega_drive_takes_the_first_core() {
+        let mut cfg: Config = toml::from_str(V1).unwrap();
+        cfg.cores.remove(MEGA_DRIVE);
+        cfg.migrate_to_v2();
+        assert_eq!(cfg.default_core, PathBuf::from("C:/cores/snes9x.dll"));
+        assert!(cfg.cores.is_empty());
+
+        let mut empty: Config = toml::from_str(V1_NO_CORES).unwrap();
+        let before = empty.default_core.clone();
+        empty.migrate_to_v2();
+        assert_eq!(
+            empty.default_core, before,
+            "sin cores, default_core no cambia"
+        );
+        assert_eq!(empty.core_provider, CoreProvider::External);
+    }
+
+    #[test]
+    fn a_newer_version_is_kept_aside_and_defaults_are_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("play_config.toml");
+        let future = format!("config_version = 3\ncore_provider = \"tessera\"\n{V1}");
+        std::fs::write(&path, &future).unwrap();
+        let (cfg, origin) = Config::load_from(&path);
+        assert_eq!(origin, LoadOrigin::NewerVersion);
+        assert_eq!(cfg.core_provider, CoreProvider::NEW_INSTALL);
+        let backup = dir.path().join("play_config.toml.unreadable");
+        assert_eq!(std::fs::read_to_string(backup).unwrap(), future);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            future,
+            "el original no se toca"
+        );
+    }
+
+    #[test]
+    fn tessera_round_trips_and_an_unknown_provider_falls_back_to_external() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("play_config.toml");
+        let mut c = Config::defaults();
+        c.core_provider = CoreProvider::Tessera;
+        c.try_save_to(&path).unwrap();
+        let (back, origin) = Config::load_from(&path);
+        assert_eq!(origin, LoadOrigin::Read);
+        assert_eq!(back.core_provider, CoreProvider::Tessera);
+
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace(r#"core_provider = "tessera""#, r#"core_provider = "mame""#);
+        std::fs::write(&path, text).unwrap();
+        let (fallback, origin) = Config::load_from(&path);
+        assert_eq!(origin, LoadOrigin::Read, "el archivo sigue legible");
+        assert_eq!(fallback.core_provider, CoreProvider::External);
+        assert_eq!(fallback.rom_dir, back.rom_dir, "y el resto se conserva");
+    }
+
+    #[test]
+    fn the_write_is_atomic_and_leaves_no_temporaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("play_config.toml");
+        let mut c = Config::defaults();
+        c.default_core = PathBuf::from("antes.dll");
+        c.try_save_to(&path).unwrap();
+        c.default_core = PathBuf::from("despues.dll");
+        c.try_save_to(&path).unwrap();
+        let (back, _) = Config::load_from(&path);
+        assert_eq!(back.default_core, PathBuf::from("despues.dll"));
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name() != "play_config.toml")
+            .collect();
+        assert!(leftovers.is_empty(), "temporales sueltos: {leftovers:?}");
+        // Un destino que no se puede escribir falla sin tocar el anterior.
+        let blocked = dir.path().join("dir-en-lugar-de-archivo");
+        std::fs::create_dir_all(&blocked).unwrap();
+        assert!(c.try_save_to(&blocked).is_err());
+        assert_eq!(
+            Config::load_from(&path).0.default_core,
+            PathBuf::from("despues.dll")
+        );
     }
 
     /// El core por plataforma gana sobre el de por defecto, y una plataforma

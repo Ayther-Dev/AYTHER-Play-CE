@@ -238,20 +238,21 @@ fn prepare_covers_directory(store: &Store, path: &Path) -> Result<()> {
             ));
         }
     }
-    let previous = store.get::<String>("root-identities", &covers.to_string_lossy())?;
     std::fs::create_dir_all(path).map_err(|error| {
         format!(
             "No se pudo crear la carpeta de portadas {}: {error}",
             path.display()
         )
     })?;
-    if let Some(previous) = previous {
+    let covers = inventory::canonical(path);
+    let key = covers.to_string_lossy();
+    if let Some(previous) = store.get::<String>("root-identities", &key)? {
         let identity =
-            crate::file_revision::directory_identity(path).map_err(|error| error.to_string())?;
+            crate::file_revision::directory_identity(&covers).map_err(|error| error.to_string())?;
         // A folder we recreate has a new file ID. Accept that change on the
         // same volume, while retaining the guard against a reused drive letter.
         if !previous.is_empty() && previous.split(':').next() == identity.split(':').next() {
-            store.put("root-identities", &covers.to_string_lossy(), &identity)?;
+            store.put("root-identities", &key, &identity)?;
         }
     }
     Ok(())

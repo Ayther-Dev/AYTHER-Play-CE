@@ -46,6 +46,8 @@ pub struct SessionResult {
 pub struct LaunchRequest<'a> {
     pub reservations: &'a [std::sync::Arc<std::fs::File>],
     pub runtime: &'a Path,
+    /// Spec 008 (RF-5.3): con `Tessera` la sesión es nativa y `core` no viaja.
+    pub provider: crate::config::CoreProvider,
     pub core: &'a Path,
     pub rom: &'a Path,
     pub pack: Option<&'a Path>,
@@ -85,7 +87,16 @@ pub struct LaunchRequest<'a> {
 }
 
 fn append_ordinary_runtime_arguments(cmd: &mut Command, request: &LaunchRequest<'_>) {
-    cmd.args(["--core", &request.core.to_string_lossy()]);
+    match request.provider {
+        // El Runtime rechaza `--core` junto a `--provider tessera`
+        // (`args.provider_conflict`, salida 64): no viaja.
+        crate::config::CoreProvider::Tessera => {
+            cmd.args(["--provider", "tessera"]);
+        }
+        crate::config::CoreProvider::External => {
+            cmd.args(["--core", &request.core.to_string_lossy()]);
+        }
+    }
     cmd.args(["--rom", &request.rom.to_string_lossy()]);
     if let Some(pack) = request.pack
         && !pack.as_os_str().is_empty()
@@ -350,6 +361,7 @@ mod tests {
         let request = LaunchRequest {
             reservations: &[],
             runtime: Path::new("runtime"),
+            provider: crate::config::CoreProvider::External,
             core: Path::new("core.dll"),
             rom: Path::new("game.rom"),
             pack: Some(Path::new("pack.ay")),
@@ -392,6 +404,50 @@ mod tests {
                 "1234abcd",
             ]
         );
+    }
+
+    /// Spec 008 (RF-5.3, TP-310.3): con Tessera viaja `--provider tessera` y
+    /// nunca `--core`; el resto de la línea es la misma.
+    #[test]
+    fn tessera_launch_sends_the_provider_and_no_core() {
+        let request = LaunchRequest {
+            reservations: &[],
+            runtime: Path::new("runtime"),
+            provider: crate::config::CoreProvider::Tessera,
+            core: Path::new("core.dll"),
+            rom: Path::new("game.md"),
+            pack: Some(Path::new("pack.ay")),
+            trust_registry: Some(Path::new("trust.toml")),
+            game_name: "tessera".into(),
+            cfg: None,
+            manifest: None,
+            saves_dir: Path::new("saves"),
+            rom_crc32: "",
+            input_map: None,
+            save: None,
+        };
+        let mut command = Command::new(request.runtime);
+        append_ordinary_runtime_arguments(&mut command, &request);
+        let arguments: Vec<_> = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            arguments,
+            [
+                "--provider",
+                "tessera",
+                "--rom",
+                "game.md",
+                "--pack",
+                "pack.ay",
+                "--trust-registry",
+                "trust.toml",
+                "--saves-dir",
+                "saves",
+            ]
+        );
+        assert!(!arguments.iter().any(|a| a == "--core"));
     }
 
     #[test]
@@ -465,6 +521,7 @@ mod tests {
                 LaunchRequest {
                     reservations: &[],
                     runtime: &runtime,
+                    provider: crate::config::CoreProvider::External,
                     core: Path::new("unused-core"),
                     rom: Path::new("unused-rom"),
                     pack,
@@ -522,6 +579,7 @@ mod tests {
                 LaunchRequest {
                     reservations: &[],
                     runtime: &runtime,
+                    provider: crate::config::CoreProvider::External,
                     core: Path::new("unused-core"),
                     rom: Path::new("unused-rom"),
                     pack: None,

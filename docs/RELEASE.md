@@ -48,7 +48,7 @@ Play's process launcher. They do not close the manual game checks below:
 
 1. Supply a core and game whose use is authorized; record their versions and
    SHA-256 without committing personal game data.
-2. Start Play against the distributed beta.13 Runtime, restore default controls,
+2. Start Play against the distributed beta.15 Runtime, restore default controls,
    launch a game, verify keyboard and controller input and a clean exit.
 3. Swap keyboard and controller assignments in Play, put the generated map in a
    path containing spaces, and verify each changed action inside the game. Save

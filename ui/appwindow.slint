@@ -1127,6 +1127,10 @@ component SettingRow inherits Rectangle {
     in property <string> origin;
     in property <string> action;
     in property <bool>   enabled: true;
+    /// Spec 008 (plan §3.11): lo que hay que corregir en la fila. Ocupa el
+    /// lugar del detalle, en el color de aviso: la fila no cambia de alto y el
+    /// seguimiento del foco (88 px por fila) sigue valiendo.
+    in property <string> alert;
     /// La fila que tiene el foco del mando, con el mismo anillo que las
     /// tarjetas de la biblioteca. Sin esto, moverse con ↑↓ no cambia nada en
     /// pantalla y la sección se lee como que no responde — que era la mitad de
@@ -1143,6 +1147,7 @@ component SettingRow inherits Rectangle {
     accessible-value: root.value;
     accessible-description: root.detail
         + (root.origin == "" ? "" : " · " + root.origin)
+        + (root.alert == "" ? "" : " · " + root.alert)
         + (root.action == "" ? "" : " · " + root.action);
     accessible-enabled: root.enabled;
     accessible-action-default => { if (root.enabled) { root.clicked(); } }
@@ -1174,8 +1179,8 @@ component SettingRow inherits Rectangle {
                 font-weight: 500;
             }
             Text {
-                text: detail;
-                color: Tokens.text-dim;
+                text: root.alert != "" ? root.alert : detail;
+                color: root.alert != "" ? Tokens.warning : Tokens.text-dim;
                 font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                 overflow: elide;
             }
@@ -1808,7 +1813,11 @@ export component AppWindow inherits Window {
     in-out property <int>    setting-row: 0;
     in property <string>     setting-language: "";
     in property <string>     setting-folders: "";
-    in property <string>     setting-cores: "";
+    // Spec 008 (TP-310.4): el núcleo y la fila de su archivo.
+    in property <string>     setting-provider: "";
+    in property <string>     setting-core-file: "";
+    in property <string>     setting-core-alert: "";
+    in property <bool>       setting-core-file-enabled: true;
     in property <string>     setting-output: "";
     /// De dónde sale el valor. **Es el CA**: un ajuste con cuatro lugares donde
     /// definirse es uno que el jugador cambia y no pasa nada.
@@ -1883,7 +1892,13 @@ export component AppWindow inherits Window {
     in property <string>     crash-title: "";
     in property <string>     crash-explanation: "";
     in property <bool>       crash-pack-rejected: false;
+    // Spec 008 (TP-310.7): the save state is from another emulator generation.
+    // The way out is the same game from the start, not the safe mode.
+    in property <bool>       crash-state-incompatible: false;
+    // The entry last launched: «Empezar sin estado» relaunches it clean.
+    in-out property <GameEntry> crash-game;
     callback crash-safe-mode();
+    callback crash-start-without-state();
 
     in-out property <bool>   orphan-open: false;
     in property <string>     orphan-text: "";
@@ -2003,7 +2018,7 @@ export component AppWindow inherits Window {
         { key: "B", icon: "", label: @tr("Cerrar") },
     ];
     property <[PadHint]> hints-crash: [
-        { key: "A", icon: "", label: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro") },
+        { key: "A", icon: "", label: root.crash-state-incompatible ? @tr("Empezar sin estado") : root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro") },
         { key: "B", icon: "", label: @tr("Cerrar") },
     ];
     property <[PadHint]> hints-orphan: [
@@ -2239,6 +2254,8 @@ export component AppWindow inherits Window {
     /// teclas muertas.
     in     property <[PadHint]> onboarding-hints:       [];
     in     property <string>   onboarding-gamepad:          "";
+    // Spec 008 (TP-310.5): el núcleo elegido en el paso «Core».
+    in     property <string>   onboarding-provider:     "";
     in     property <string>   onboarding-core:         "";
     in     property <string>   onboarding-core-detail:  "";
     /// Qué pasó con el core, en un renglón. Sale del veredicto (`titulo()`), y
@@ -3063,7 +3080,7 @@ export component AppWindow inherits Window {
                     // dos filas más (canal y vuelta atrás). El tope está
                     // acá y la cuenta en `ajustes::FILAS`: son dos, y por eso
                     // `filas_de_ajustes_al_dia` las ata.
-                    if setting-row < 9 { setting-row += 1; }
+                    if setting-row < 10 { setting-row += 1; }
                     return EventResult.accept;
                 }
                 if event.text == Key.Return || event.text == " " {
@@ -3163,27 +3180,39 @@ export component AppWindow inherits Window {
                         focused: root.setting-row == 1;
                         clicked => { root.setting-row = 1; root.setting-activate(1); }
                     }
+                    // Spec 008 (RF-9.1, TP-310.4): el núcleo y, con «Core
+                    // externo», su archivo obligatorio. Reemplazan a «Cores ·
+                    // Administrar».
                     SettingRow {
-                        label: @tr("Cores");
-                        detail: root.setting-cores;
-                        action: @tr("Administrar");
+                        label: @tr("Núcleo de emulación");
+                        detail: @tr("Tessera (Experimental) · Core externo");
+                        value: root.setting-provider;
                         focused: root.setting-row == 2;
                         clicked => { root.setting-row = 2; root.setting-activate(2); }
+                    }
+                    SettingRow {
+                        label: @tr("Archivo del core (obligatorio)");
+                        detail: root.setting-core-file;
+                        alert: root.setting-core-alert;
+                        action: root.setting-core-file-enabled ? @tr("Elegir") : "";
+                        enabled: root.setting-core-file-enabled;
+                        focused: root.setting-row == 3;
+                        clicked => { root.setting-row = 3; root.setting-activate(3); }
                     }
                     SettingRow {
                         label: @tr("Perfil de salida");
                         detail: @tr("Cómo se ve la imagen: CRT, LCD, píxel exacto…");
                         value: root.setting-output;
                         origin: root.setting-output-origin;
-                        focused: root.setting-row == 3;
-                        clicked => { root.setting-row = 3; root.setting-activate(3); }
+                        focused: root.setting-row == 4;
+                        clicked => { root.setting-row = 4; root.setting-activate(4); }
                     }
                     SettingRow {
                         label: @tr("Controles del juego");
                         detail: root.setting-controls;
                         action: @tr("Configurar");
-                        focused: root.setting-row == 4;
-                        clicked => { root.setting-row = 4; root.setting-activate(4); }
+                        focused: root.setting-row == 5;
+                        clicked => { root.setting-row = 5; root.setting-activate(5); }
                     }
                     // los packs van con el CONTENIDO, pegados a las
                     // carpetas de ROMs y a los cores: son la misma pregunta
@@ -3192,35 +3221,35 @@ export component AppWindow inherits Window {
                         label: @tr("Carpeta de packs");
                         detail: root.setting-packs;
                         action: @tr("Elegir");
-                        focused: root.setting-row == 5;
-                        clicked => { root.setting-row = 5; root.setting-activate(5); }
+                        focused: root.setting-row == 6;
+                        clicked => { root.setting-row = 6; root.setting-activate(6); }
                     }
                     SettingRow {
                         label: @tr("Instalar un pack desde el disco");
                         detail: @tr("Un .ay que conseguiste por fuera: se audita entero y la versión anterior queda guardada");
                         action: @tr("Instalar");
-                        focused: root.setting-row == 6;
-                        clicked => { root.setting-row = 6; root.setting-activate(6); }
+                        focused: root.setting-row == 7;
+                        clicked => { root.setting-row = 7; root.setting-activate(7); }
                     }
                     SettingRow {
                         label: @tr("Carpeta de datos");
                         detail: root.setting-data;
                         enabled: false;
-                        focused: root.setting-row == 7;
+                        focused: root.setting-row == 8;
                     }
                     SettingRow {
                         label: @tr("Exportar mis datos");
                         detail: @tr("Un ZIP con tus guardados y tus preferencias, para llevártelo");
                         action: @tr("Exportar");
-                        focused: root.setting-row == 8;
-                        clicked => { root.setting-row = 8; root.setting-activate(8); }
+                        focused: root.setting-row == 9;
+                        clicked => { root.setting-row = 9; root.setting-activate(9); }
                     }
                     SettingRow {
                         label: @tr("Volver a ver la bienvenida");
                         detail: @tr("Onboarding y términos BYOR/BYOC");
                         action: @tr("Abrir");
-                        focused: root.setting-row == 9;
-                        clicked => { root.setting-row = 9; root.setting-activate(9); }
+                        focused: root.setting-row == 10;
+                        clicked => { root.setting-row = 10; root.setting-activate(10); }
                     }
 
                     Rectangle { height: 24px; }
@@ -4412,9 +4441,12 @@ export component AppWindow inherits Window {
         y: Shell.topbar + (parent.height - Shell.topbar - Shell.footer - self.height) / 2;
         title: root.crash-title;
         left-button-label: @tr("Cerrar");
-        right-button-label: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro");
+        right-button-label: root.crash-state-incompatible ? @tr("Empezar sin estado") : root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Modo seguro");
         left-clicked => { root.crash-open = false; }
-        right-clicked => { root.crash-safe-mode(); root.crash-open = false; }
+        right-clicked => {
+            root.crash-open = false;
+            if (root.crash-state-incompatible) { root.crash-start-without-state(); } else { root.crash-safe-mode(); }
+        }
         Text {
             text: root.crash-explanation;
             color: Tokens.text-normal;
@@ -4422,8 +4454,8 @@ export component AppWindow inherits Window {
             wrap: word-wrap; width: 704px;
         }
         TenFootAlert {
-            title: root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Reiniciar en modo seguro");
-            detail: @tr("Se lanza sin pack, sin shaders y sin overrides. La ROM y tus guardados quedan intactos.");
+            title: root.crash-state-incompatible ? @tr("Empezar sin estado") : root.crash-pack-rejected ? @tr("Jugar sin pack") : @tr("Reiniciar en modo seguro");
+            detail: root.crash-state-incompatible ? @tr("Se lanza el mismo juego con la misma configuración, desde el principio. El guardado no se borra.") : @tr("Se lanza sin pack, sin shaders y sin overrides. La ROM y tus guardados quedan intactos.");
         }
         Text {
             text: root.crash-detail;
@@ -5575,6 +5607,13 @@ export component AppWindow inherits Window {
                             // -- Paso 4: el core, con su semáforo -----------
                             if onboarding-step == 3: VerticalLayout {
                                 spacing: 16px;
+                                // Spec 008 (TP-310.5): qué núcleo; «Y» lo cambia.
+                                Text {
+                                    text: @tr("Núcleo de emulación: {}", root.onboarding-provider);
+                                    color: Tokens.text-normal;
+                                    font-family: Tokens.font-ui; font-size: Tokens.text-body;
+                                    font-weight: 500;
+                                }
                                 // CoreRow del diseño: el `cpu` del color del
                                 // veredicto, el nombre en mono (es un archivo),
                                 // el detalle abajo y el semáforo a la derecha.

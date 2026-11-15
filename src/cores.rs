@@ -156,6 +156,11 @@ pub fn record(core: PathBuf, v: Verdict) {
     }
 }
 
+/// Lo que dijo el último sondeo de `core` en esta corrida, si lo hubo.
+pub fn last_verdict(core: &std::path::Path) -> Option<Verdict> {
+    PROBES.lock().ok().and_then(|s| s.get(core).cloned())
+}
+
 /// El eje del core para esta plataforma, con lo sondeado hasta ahora.
 ///
 /// Un lock envenenado se lee como «no se sondeó nada»: `SinComprobar` no
@@ -170,6 +175,9 @@ pub fn state(cfg: &Config, platform: &str) -> CoreAxis {
 
 /// Presentation uses the last probe. Launch preparation checks disk again.
 pub fn cached_state(cfg: &Config, platform: &str) -> CoreAxis {
+    if cfg.core_provider == config::CoreProvider::Tessera {
+        return tessera_axis(platform);
+    }
     let Some(path) = config::core_for(cfg, platform) else {
         return CoreAxis::Missing;
     };
@@ -190,6 +198,9 @@ pub fn cached_state(cfg: &Config, platform: &str) -> CoreAxis {
 /// primero si hay ruta, después si el archivo está, y recién ahí lo que dijo el
 /// proceso. Al revés habría que sondear para poder decir «no hay core».
 pub fn axis(cfg: &Config, probes: &Probes, platform: &str) -> CoreAxis {
+    if cfg.core_provider == config::CoreProvider::Tessera {
+        return tessera_axis(platform);
+    }
     let Some(path) = config::core_for(cfg, platform) else {
         return CoreAxis::Missing;
     };
@@ -202,13 +213,31 @@ pub fn axis(cfg: &Config, probes: &Probes, platform: &str) -> CoreAxis {
     verdict_axis(probes.get(&path), platform)
 }
 
+/// Spec 008 (plan §2.7): las plataformas que Tessera emula en esta fase. Es la
+/// lista fijada hasta que el Runtime publique `backends_enumerate_v1`.
+pub const TESSERA_PLATFORMS: &[&str] = &[config::MEGA_DRIVE];
+
+/// Spec 008 (RF-9.9, TP-310.6/310.8): con Tessera no hay archivo que sondear;
+/// una plataforma que no está en la lista se dice ANTES de lanzar, y la
+/// configuración no se toca.
+pub fn tessera_axis(platform: &str) -> CoreAxis {
+    if TESSERA_PLATFORMS.contains(&platform) {
+        CoreAxis::Usable
+    } else {
+        CoreAxis::Unusable(tr!(
+            "El núcleo elegido no soporta este sistema. Elegí «Core externo» en Ajustes."
+        ))
+    }
+}
+
 fn verdict_axis(verdict: Option<&Verdict>, platform: &str) -> CoreAxis {
     let Some(v) = verdict else {
         return CoreAxis::Unchecked;
     };
     match v {
         Verdict::Missing(_) => CoreAxis::Missing,
-        Verdict::ProbeFailed(_) => CoreAxis::CheckFailed,
+        // Spec 008 (PQ-10): un sondeo que no respondió no dice nada del core.
+        Verdict::ProbeFailed(_) | Verdict::Timeout => CoreAxis::CheckFailed,
         Verdict::Valid(i) => {
             if i.supports(platform) {
                 CoreAxis::Usable
@@ -241,6 +270,10 @@ fn verdict_axis(verdict: Option<&Verdict>, platform: &str) -> CoreAxis {
 /// El `default_core` entra siempre: con el mapa vacío es el único que hay, y con
 /// el mapa lleno sigue siendo el que grada los packs (#595).
 pub fn to_probe(cfg: &Config) -> Vec<PathBuf> {
+    // Con Tessera no hay core externo que sondear al arrancar.
+    if cfg.core_provider == config::CoreProvider::Tessera {
+        return Vec::new();
+    }
     let mut paths: BTreeSet<PathBuf> = cfg.cores.values().cloned().collect();
     paths.insert(cfg.default_core.clone());
     paths.into_iter().filter(|r| r.exists()).collect()

@@ -1339,3 +1339,72 @@ msgstr "Checking compatibility…"
 
 msgid "Buscando carátulas…"
 msgstr "Finding covers…"
+
+msgid "El guardado es de otro núcleo de emulación"
+msgstr "The save is from another emulation core"
+
+msgid "Este estado se guardó con otro núcleo de emulación y no se puede cargar con el actual. Podés empezar sin el estado; el guardado queda en el disco."
+msgstr "This state was saved with another emulation core and cannot be loaded with the current one. You can start without the state; the save stays on disk."
+
+#: ui/appwindow.slint
+msgid "Empezar sin estado"
+msgstr "Start without the state"
+
+#: ui/appwindow.slint
+msgid "Se lanza el mismo juego con la misma configuración, desde el principio. El guardado no se borra."
+msgstr "The same game starts with the same settings, from the beginning. The save is not deleted."
+
+msgid "El núcleo elegido no soporta este sistema. Elegí «Core externo» en Ajustes."
+msgstr "The selected core does not support this system. Choose “External core” in Settings."
+
+msgid "El core no ofrece la observación AYTHER (ABI 1.10)."
+msgstr "The core does not provide AYTHER observation (ABI 1.10)."
+
+msgid "El core no ofrece toda la observación AYTHER"
+msgstr "The core lacks part of the AYTHER observation"
+
+msgid "No se pudo comprobar el core: no respondió."
+msgstr "The core could not be checked: it did not respond."
+
+msgid "Elegí el core de AYTHER (genesis_plus_gx_libretro_ayther_x64), no el de fábrica."
+msgstr "Choose the AYTHER core (genesis_plus_gx_libretro_ayther_x64), not the stock one."
+
+msgid "El core no ofrece toda la observación AYTHER; faltan: {}."
+msgstr "The core lacks part of the AYTHER observation; missing: {}."
+
+msgid "El core tardó más de {} s en cargar. Elegí otro archivo o revisá el que tenés."
+msgstr "The core took more than {} s to load. Choose another file or check the one you have."
+
+msgid "Tessera (Experimental)"
+msgstr "Tessera (Experimental)"
+
+msgid "Core externo"
+msgstr "External core"
+
+msgid "No hace falta: Tessera viene incluido."
+msgstr "Not needed: Tessera is built in."
+
+msgid "Obligatorio: indica el archivo del core."
+msgstr "Required: choose the core file."
+
+#: ui/appwindow.slint
+msgid "Núcleo de emulación"
+msgstr "Emulation core"
+
+#: ui/appwindow.slint
+msgid "Tessera (Experimental) · Core externo"
+msgstr "Tessera (Experimental) · External core"
+
+#: ui/appwindow.slint
+msgid "Archivo del core (obligatorio)"
+msgstr "Core file (required)"
+
+msgid "Cambiar núcleo"
+msgstr "Change core"
+
+msgid "Viene incluido · Mega Drive"
+msgstr "Built in · Mega Drive"
+
+#: ui/appwindow.slint
+msgid "Núcleo de emulación: {}"
+msgstr "Emulation core: {}"

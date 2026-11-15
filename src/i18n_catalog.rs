@@ -10,6 +10,59 @@ pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
     match lang {
         "en" => match msgid {
             "Jugar original" => Some("Play original"),
+            "Cambiar núcleo" => Some("Change core"),
+            "Viene incluido · Mega Drive" => Some("Built in · Mega Drive"),
+            "Núcleo de emulación: {}" => Some("Emulation core: {}"),
+            "Tessera (Experimental)" => Some("Tessera (Experimental)"),
+            "Core externo" => Some("External core"),
+            "No hace falta: Tessera viene incluido." => Some("Not needed: Tessera is built in."),
+            "Obligatorio: indica el archivo del core." => Some("Required: choose the core file."),
+            "Núcleo de emulación" => Some("Emulation core"),
+            "Tessera (Experimental) · Core externo" => {
+                Some("Tessera (Experimental) · External core")
+            }
+            "Archivo del core (obligatorio)" => Some("Core file (required)"),
+            "El núcleo elegido no soporta este sistema. Elegí «Core externo» en Ajustes." => {
+                Some(
+                    "The selected core does not support this system. Choose “External core” in Settings.",
+                )
+            }
+            "El core no ofrece la observación AYTHER (ABI 1.10)." => {
+                Some("The core does not provide AYTHER observation (ABI 1.10).")
+            }
+            "El core no ofrece toda la observación AYTHER" => {
+                Some("The core lacks part of the AYTHER observation")
+            }
+            "No se pudo comprobar el core: no respondió." => {
+                Some("The core could not be checked: it did not respond.")
+            }
+            "Elegí el core de AYTHER (genesis_plus_gx_libretro_ayther_x64), no el de fábrica." => {
+                Some(
+                    "Choose the AYTHER core (genesis_plus_gx_libretro_ayther_x64), not the stock one.",
+                )
+            }
+            "El core no ofrece toda la observación AYTHER; faltan: {}." => {
+                Some("The core lacks part of the AYTHER observation; missing: {}.")
+            }
+            "El core tardó más de {} s en cargar. Elegí otro archivo o revisá el que tenés." => {
+                Some(
+                    "The core took more than {} s to load. Choose another file or check the one you have.",
+                )
+            }
+            "Empezar sin estado" => Some("Start without the state"),
+            "Se lanza el mismo juego con la misma configuración, desde el principio. El guardado no se borra." => {
+                Some(
+                    "The same game starts with the same settings, from the beginning. The save is not deleted.",
+                )
+            }
+            "El guardado es de otro núcleo de emulación" => {
+                Some("The save is from another emulation core")
+            }
+            "Este estado se guardó con otro núcleo de emulación y no se puede cargar con el actual. Podés empezar sin el estado; el guardado queda en el disco." => {
+                Some(
+                    "This state was saved with another emulation core and cannot be loaded with the current one. You can start without the state; the save stays on disk.",
+                )
+            }
             "Actualizá el motor de juego" => Some("Update the game engine"),
             "Este Runtime no confirmó los archivos preparados. Instalá la compilación de Runtime que acompaña a esta versión de Play CE y volvé a intentar." => {
                 Some(

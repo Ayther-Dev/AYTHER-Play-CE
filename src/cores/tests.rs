@@ -48,6 +48,10 @@ fn a_core_the_probe_rejects_does_not_show_compatible_on_the_card() {
         },
         Verdict::NotACore(core.clone()),
         Verdict::ForeignApi { api: 2 },
+        // Spec 008 (contrato v2): un core de fábrica y uno con capacidades
+        // faltantes también bloquean, con su remedio.
+        Verdict::AbiMissing,
+        Verdict::CapabilitiesIncomplete(vec!["SPRITE_OUTCOME_V1".into()]),
         // Y el que sólo se puede ver sondeando: carga, es un core, pero es de
         // otra consola. Con el archivo puesto y la ruta escrita, esto era
         // «Compatible».
@@ -360,4 +364,49 @@ fn a_traffic_light_that_does_not_speak_of_the_core_stays_quiet() {
             "{e:?} choca con el «no viene al caso» de la UI"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Spec 008 (RF-9.3, RF-9.9; TP-310.6, TP-310.8)
+// ---------------------------------------------------------------------------
+
+/// Un sondeo que no respondió en el límite no dice nada del core: como un
+/// sondeo que no se pudo correr, no bloquea.
+#[test]
+fn a_probe_timeout_does_not_block() {
+    let dir = tempfile::tempdir().unwrap();
+    let (cfg, core) = with_core(dir.path());
+    let mut s = Probes::new();
+    s.record(core, Verdict::Timeout);
+    assert_eq!(axis(&cfg, &s, "Mega Drive"), CoreAxis::CheckFailed);
+}
+
+/// Con Tessera no hay archivo: Mega Drive se puede jugar sin core, y otra
+/// consola se dice antes de lanzar, con el remedio y sin tocar la
+/// configuración.
+#[test]
+fn with_tessera_the_fixed_list_decides_before_launch() {
+    let mut cfg = Config::defaults();
+    cfg.core_provider = config::CoreProvider::Tessera;
+    cfg.default_core = PathBuf::from("no-existe.dll");
+    let before = toml::to_string(&cfg).unwrap();
+    let probes = Probes::new();
+
+    assert_eq!(axis(&cfg, &probes, "Mega Drive"), CoreAxis::Usable);
+    assert_eq!(cached_state(&cfg, "Mega Drive"), CoreAxis::Usable);
+    match axis(&cfg, &probes, "SNES") {
+        CoreAxis::Unusable(remedy) => {
+            assert!(remedy.contains("Core externo"), "{remedy}");
+        }
+        other => panic!("SNES con Tessera tenía que bloquear: {other:?}"),
+    }
+    assert!(
+        to_probe(&cfg).is_empty(),
+        "con Tessera no se sondea ningún core"
+    );
+    assert_eq!(
+        toml::to_string(&cfg).unwrap(),
+        before,
+        "la configuración queda intacta"
+    );
 }

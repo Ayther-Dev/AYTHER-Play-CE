@@ -400,27 +400,15 @@ fn main() {
             .into(),
         );
 
-        // Los cores se cuentan por PLATAFORMA servida y no por archivo: el
-        // wizard anota una entrada por cada consola que el core sirve (#589),
-        // así que «3 cores» sobre un solo archivo sería mentir por tres.
-        let files: std::collections::BTreeSet<&std::path::PathBuf> = c.cores.values().collect();
-        app.set_setting_cores(
-            format!(
-                "{} · {}",
-                if files.len() == 1 {
-                    tr!("1 core")
-                } else {
-                    tr!("{} cores", files.len())
-                },
-                if c.cores.is_empty() {
-                    tr!("ninguna consola cubierta")
-                } else {
-                    c.cores.keys().cloned().collect::<Vec<_>>().join(", ")
-                }
-            )
-            .as_str()
-            .into(),
-        );
+        // Spec 008 (TP-310.4): el núcleo y su archivo. La fila del archivo
+        // dice lo que dijo el último sondeo, sin tocar el valor guardado.
+        app.set_setting_provider(settings::provider_label(c.core_provider).as_str().into());
+        let core = config::core_for(&c, config::MEGA_DRIVE);
+        let verdict = core.as_deref().and_then(cores::last_verdict);
+        let row = settings::core_file_row(c.core_provider, core.as_deref(), verdict.as_ref());
+        app.set_setting_core_file(row.detail.as_str().into());
+        app.set_setting_core_alert(row.alert.as_str().into());
+        app.set_setting_core_file_enabled(row.enabled);
 
         // #599: la precedencia, a la vista. Hoy el perfil de salida se define
         // globalmente o lo recomienda el pack; los niveles por consola y por
@@ -562,6 +550,24 @@ fn main() {
                     }
                     render_settings(&app, &cfg, &all_items);
                 }
+
+                // Spec 008 (RF-9.1): el otro núcleo, guardado al momento. La
+                // biblioteca se re-proyecta: el semáforo de cada juego depende
+                // del núcleo (Tessera sólo Mega Drive en esta fase).
+                settings::Action::CycleProvider => {
+                    {
+                        let mut c = cfg.lock().unwrap();
+                        c.core_provider = settings::next_provider(c.core_provider);
+                        c.save();
+                    }
+                    refresh_ui(&app, &all_items, &filter, &order, &cfg);
+                    render_settings(&app, &cfg, &all_items);
+                }
+
+                // Con Tessera no hay archivo que elegir: la fila está apagada y
+                // un «A» que llegue igual (mando, índice viejo) no abre nada.
+                settings::Action::EditCores
+                    if cfg.lock().unwrap().core_provider == config::CoreProvider::Tessera => {}
 
                 settings::Action::EditFolders | settings::Action::EditCores => {
                     let step = if action == settings::Action::EditFolders {
@@ -1055,6 +1061,24 @@ fn main() {
             // vería su juego sin el pack sin saber por qué.
             app.set_safe_mode(true);
             app.invoke_config_accept();
+        }
+    });
+
+    // Spec 008 (TP-310.7): the Runtime refused a state saved by another
+    // emulator generation (exit 65, `state.generation_mismatch`). The way out
+    // is the same game, same configuration, from the start: the clean run of
+    // the library («Partida nueva»), which does not pass --load-state. The
+    // save stays on disk.
+    app.on_crash_start_without_state({
+        let weak = app.as_weak();
+        move || {
+            let Some(app) = weak.upgrade() else { return };
+            let game = app.get_crash_game();
+            if game.path.is_empty() {
+                return;
+            }
+            app.set_clean_run(true);
+            app.invoke_launch_entry(game);
         }
     });
 
@@ -2278,6 +2302,7 @@ fn main() {
             let Some(app) = weak.upgrade() else { return };
             if app.get_playing() || PREPARING.swap(true, Ordering::AcqRel) { return; }
             PREPARE_CANCEL.store(false, Ordering::Release);
+            app.set_crash_game(entry.clone());
             let configuration = cfg.lock().unwrap().clone();
             let rom = std::path::PathBuf::from(entry.path.as_str());
             let pack = entry.has_pack.then(|| std::path::PathBuf::from(entry.pack_path.as_str())).filter(|p| !p.as_os_str().is_empty());
@@ -2650,9 +2675,10 @@ fn main() {
             };
 
             let trust_registry = cfg.lock().unwrap().pack_trust_registry(p.pack.as_deref()).map(std::path::Path::to_path_buf);
+            let provider = cfg.lock().unwrap().core_provider;
             spawn::launch(spawn::LaunchRequest {
                           reservations: &p.reservations,
-                          runtime: &runtime, core: &core, rom: &p.rom,
+                          runtime: &runtime, provider, core: &core, rom: &p.rom,
                           pack: p.pack.as_deref(), game_name: name,
                           trust_registry: trust_registry.as_deref(),
                           cfg: Some(&effective_launch_config), manifest: manifest_path.as_deref(),
@@ -2863,6 +2889,7 @@ fn main() {
                             app.set_crash_title(failure_notice.title.into());
                             app.set_crash_explanation(failure_notice.explanation.into());
                             app.set_crash_pack_rejected(failure_notice.pack_rejected);
+                            app.set_crash_state_incompatible(failure_notice.state_incompatible);
                             app.set_crash_detail(crash_txt.as_str().into());
                             app.set_crash_open(true);
                         }
@@ -3516,6 +3543,17 @@ fn refresh_onboarding(app: &AppWindow, e: &onboarding::State) {
             app.set_onboarding_core_remedy("".into());
             app.set_onboarding_core_detail("".into());
         }
+    }
+
+    // Spec 008 (TP-310.5): el núcleo elegido, y con Tessera no hay archivo:
+    // el renglón del core lo nombra y queda en verde.
+    app.set_onboarding_provider(settings::provider_label(e.provider).as_str().into());
+    if e.provider == config::CoreProvider::Tessera {
+        app.set_onboarding_core(tr!("Tessera (Experimental)").into());
+        app.set_onboarding_core_state("ok".into());
+        app.set_onboarding_core_title("".into());
+        app.set_onboarding_core_remedy("".into());
+        app.set_onboarding_core_detail(tr!("Viene incluido · Mega Drive").into());
     }
 
     // #627 — la carpeta se marca con el ICONO `folder`, que es lo que pide el
@@ -4558,7 +4596,11 @@ fn apply_effect(app: &AppWindow, ef: pad_router::Effect) {
         }
         SafeMode => {
             app.set_crash_open(false);
-            app.invoke_crash_safe_mode();
+            if app.get_crash_state_incompatible() {
+                app.invoke_crash_start_without_state();
+            } else {
+                app.invoke_crash_safe_mode();
+            }
         }
         CloseCrash => app.set_crash_open(false),
         PlayFromDetails => app.invoke_details_play(),
