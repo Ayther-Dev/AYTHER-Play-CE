@@ -215,7 +215,8 @@ pub fn axis(cfg: &Config, probes: &Probes, platform: &str) -> CoreAxis {
 
 /// Spec 008 (plan §2.7): las plataformas que Tessera emula en esta fase. Es la
 /// lista fijada hasta que el Runtime publique `backends_enumerate_v1`.
-pub const TESSERA_PLATFORMS: &[&str] = &[config::MEGA_DRIVE];
+pub const TESSERA_PLATFORMS: &[&str] =
+    &[config::MEGA_DRIVE, "Master System", "Game Gear", "SG-1000"];
 
 /// Spec 008 (RF-9.9, TP-310.6/310.8): con Tessera no hay archivo que sondear;
 /// una plataforma que no está en la lista se dice ANTES de lanzar, y la
