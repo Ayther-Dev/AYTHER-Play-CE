@@ -13,14 +13,12 @@ pub fn lookup(lang: &str, msgid: &str) -> Option<&'static str> {
             "Cambiar núcleo" => Some("Change core"),
             "Viene incluido · Mega Drive" => Some("Built in · Mega Drive"),
             "Núcleo de emulación: {}" => Some("Emulation core: {}"),
-            "Tessera (Experimental)" => Some("Tessera (Experimental)"),
+            "Tessera" => Some("Tessera"),
             "Core externo" => Some("External core"),
             "No hace falta: Tessera viene incluido." => Some("Not needed: Tessera is built in."),
             "Obligatorio: indica el archivo del core." => Some("Required: choose the core file."),
             "Núcleo de emulación" => Some("Emulation core"),
-            "Tessera (Experimental) · Core externo" => {
-                Some("Tessera (Experimental) · External core")
-            }
+            "Tessera · Core externo" => Some("Tessera · External core"),
             "Archivo del core (obligatorio)" => Some("Core file (required)"),
             "El núcleo elegido no soporta este sistema. Elegí «Core externo» en Ajustes." => {
                 Some(

@@ -1375,8 +1375,8 @@ msgstr "The core lacks part of the AYTHER observation; missing: {}."
 msgid "El core tardó más de {} s en cargar. Elegí otro archivo o revisá el que tenés."
 msgstr "The core took more than {} s to load. Choose another file or check the one you have."
 
-msgid "Tessera (Experimental)"
-msgstr "Tessera (Experimental)"
+msgid "Tessera"
+msgstr "Tessera"
 
 msgid "Core externo"
 msgstr "External core"
@@ -1392,8 +1392,8 @@ msgid "Núcleo de emulación"
 msgstr "Emulation core"
 
 #: ui/appwindow.slint
-msgid "Tessera (Experimental) · Core externo"
-msgstr "Tessera (Experimental) · External core"
+msgid "Tessera · Core externo"
+msgstr "Tessera · External core"
 
 #: ui/appwindow.slint
 msgid "Archivo del core (obligatorio)"

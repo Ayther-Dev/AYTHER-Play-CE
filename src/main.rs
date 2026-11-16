@@ -3549,7 +3549,7 @@ fn refresh_onboarding(app: &AppWindow, e: &onboarding::State) {
     // el renglón del core lo nombra y queda en verde.
     app.set_onboarding_provider(settings::provider_label(e.provider).as_str().into());
     if e.provider == config::CoreProvider::Tessera {
-        app.set_onboarding_core(tr!("Tessera (Experimental)").into());
+        app.set_onboarding_core(tr!("Tessera").into());
         app.set_onboarding_core_state("ok".into());
         app.set_onboarding_core_title("".into());
         app.set_onboarding_core_remedy("".into());

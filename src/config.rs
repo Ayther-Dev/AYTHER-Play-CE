@@ -36,9 +36,9 @@ pub enum CoreProvider {
 }
 
 impl CoreProvider {
-    /// Proveedor de una instalación NUEVA: `external` hasta el gate G3 (RF-9.8).
-    /// Las configuraciones migradas quedan explícitas y no siguen este valor.
-    pub const NEW_INSTALL: CoreProvider = CoreProvider::External;
+    /// Proveedor de una instalación NUEVA: `tessera` desde el gate G3 (RF-9.8,
+    /// TP-308.2/308.3). Las configuraciones migradas quedan explícitas y no siguen este valor.
+    pub const NEW_INSTALL: CoreProvider = CoreProvider::Tessera;
 }
 
 /// Un valor desconocido no deja ilegible el archivo entero (#588): cae a
@@ -876,11 +876,7 @@ covers_dir = "covers"
         assert_eq!(origin, LoadOrigin::Created);
         assert_eq!(cfg.config_version, CONFIG_VERSION);
         assert_eq!(cfg.core_provider, CoreProvider::NEW_INSTALL);
-        assert_eq!(
-            CoreProvider::NEW_INSTALL,
-            CoreProvider::External,
-            "hasta G3"
-        );
+        assert_eq!(CoreProvider::NEW_INSTALL, CoreProvider::Tessera, "desde G3");
     }
 
     #[test]

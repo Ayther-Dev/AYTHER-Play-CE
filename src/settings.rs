@@ -271,11 +271,10 @@ pub fn secondary_action(row: i32) -> Option<SecondaryAction> {
         .then_some(SecondaryAction::RemovePacksFolder)
 }
 
-/// Spec 008 (plan §2.9): el nombre de cada núcleo. «Experimental» se queda
-/// hasta que el responsable cierre G3 (RF-9.5).
+/// Spec 008 (plan §2.9, TP-308.2/308.3): el nombre de cada núcleo.
 pub fn provider_label(provider: crate::config::CoreProvider) -> String {
     match provider {
-        crate::config::CoreProvider::Tessera => tr!("Tessera (Experimental)"),
+        crate::config::CoreProvider::Tessera => tr!("Tessera"),
         crate::config::CoreProvider::External => tr!("Core externo"),
     }
 }
@@ -344,7 +343,7 @@ mod tests {
         use crate::config::CoreProvider::{External, Tessera};
         assert_eq!(next_provider(External), Tessera);
         assert_eq!(next_provider(Tessera), External);
-        assert!(provider_label(Tessera).contains("Experimental"));
+        assert_eq!(provider_label(Tessera), "Tessera");
         assert_eq!(provider_label(External), "Core externo");
     }
 

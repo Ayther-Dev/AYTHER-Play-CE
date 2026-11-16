@@ -3185,7 +3185,7 @@ export component AppWindow inherits Window {
                     // Administrar».
                     SettingRow {
                         label: @tr("Núcleo de emulación");
-                        detail: @tr("Tessera (Experimental) · Core externo");
+                        detail: @tr("Tessera · Core externo");
                         value: root.setting-provider;
                         focused: root.setting-row == 2;
                         clicked => { root.setting-row = 2; root.setting-activate(2); }

@@ -3,6 +3,7 @@
 //! que en esta máquina no existen (un core de 32 bits, uno de otra consola).
 
 use super::*;
+use crate::config::CoreProvider;
 use crate::core_probe::{Architecture, CoreInfo};
 use crate::library::PackStatus;
 
@@ -22,6 +23,7 @@ fn with_core(dir: &std::path::Path) -> (Config, PathBuf) {
     let core = dir.join("core.dll");
     std::fs::write(&core, b"x").unwrap();
     let mut c = Config::defaults();
+    c.core_provider = CoreProvider::External;
     c.default_core = core.clone();
     (c, core)
 }

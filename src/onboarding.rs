@@ -777,6 +777,7 @@ mod tests {
 
     fn cfg() -> Config {
         let mut c = Config::defaults();
+        c.core_provider = crate::config::CoreProvider::External;
         c.onboarding_complete = true;
         c.terms_accepted = Some(TERMS_VERSION.into());
         c.terms_date = Some(WHEN.into());
@@ -784,7 +785,10 @@ mod tests {
     }
 
     fn ready() -> State {
-        let mut e = State::default();
+        let mut e = State {
+            provider: crate::config::CoreProvider::External,
+            ..Default::default()
+        };
         e.add_folder(std::env::temp_dir());
         e.terms_accepted = true;
         e.verdict = Some(Verdict::Valid(crate::core_probe::CoreInfo {
@@ -1201,6 +1205,7 @@ mod tests {
         // parte de lo que este test verifica.
         let core = tmp.path().join("gpgx.dll");
         std::fs::write(&core, b"MZ").unwrap();
+        e.provider = crate::config::CoreProvider::External;
         e.core = Some(core.clone());
         e.verdict = Some(Verdict::Valid(crate::core_probe::CoreInfo {
             api: 1,
