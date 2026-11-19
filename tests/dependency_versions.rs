@@ -2,10 +2,10 @@ use std::{fs, path::Path};
 
 const ENGINE_TAG: &str = "v0.1.0-rc.19";
 const ENGINE_COMMIT: &str = "6f272c893dbf1cc3d9adfc6f2ff878a9c974acd8";
-const RUNTIME_TAG: &str = "v0.1.0-beta.17";
-const RUNTIME_COMMIT: &str = "00e6f9fc4f9019722917baf338ac6cff5dd8c2ec";
-const RUNTIME_ASSET: &str = "ayther-runtime-0.1.0-beta.17-Windows-AMD64-Runtime.zip";
-const RUNTIME_SHA256: &str = "4a4e929f8844188306c3be379bafb622cddf639dfc8621d8c8d8ff9005cedc36";
+const RUNTIME_TAG: &str = "v0.1.0-beta.19";
+const RUNTIME_COMMIT: &str = "bf3b85ce46ddee6eb9da2799266bc9d84d1639e8";
+const RUNTIME_ASSET: &str = "ayther-runtime-0.1.0-beta.19-Windows-AMD64-Runtime.zip";
+const RUNTIME_SHA256: &str = "219da35dbf1a2aaab647c311179803cbd70e1d6ed4086eb233f00df31b9ab4d1";
 
 fn read(root: &Path, path: &str) -> String {
     fs::read_to_string(root.join(path)).unwrap_or_else(|error| panic!("{path}: {error}"))

@@ -86,6 +86,18 @@ pub struct LaunchRequest<'a> {
     pub save: Option<&'a Path>,
 }
 
+/// Diálogo de pausa del Runtime con la marca de Play CE (Runtime >= beta.18:
+/// `--accent-color`, `--title`, `--exit-button-text`). Sin ellas el Runtime
+/// usa sus valores de fábrica («Runtime», «Salir», naranja #FF7300).
+const PAUSE_DIALOG_ARGUMENTS: [&str; 6] = [
+    "--accent-color",
+    "#FB2C36",
+    "--title",
+    "AYTHER PLAY CE",
+    "--exit-button-text",
+    "Volver al launcher",
+];
+
 fn append_ordinary_runtime_arguments(cmd: &mut Command, request: &LaunchRequest<'_>) {
     match request.provider {
         // El Runtime rechaza `--core` junto a `--provider tessera`
@@ -124,6 +136,7 @@ fn append_ordinary_runtime_arguments(cmd: &mut Command, request: &LaunchRequest<
     if !request.rom_crc32.is_empty() {
         cmd.args(["--rom-crc32", request.rom_crc32]);
     }
+    cmd.args(PAUSE_DIALOG_ARGUMENTS);
 }
 
 pub fn launch<E, F>(
@@ -402,6 +415,12 @@ mod tests {
                 "slot.state",
                 "--rom-crc32",
                 "1234abcd",
+                "--accent-color",
+                "#FB2C36",
+                "--title",
+                "AYTHER PLAY CE",
+                "--exit-button-text",
+                "Volver al launcher",
             ]
         );
     }
@@ -445,6 +464,12 @@ mod tests {
                 "trust.toml",
                 "--saves-dir",
                 "saves",
+                "--accent-color",
+                "#FB2C36",
+                "--title",
+                "AYTHER PLAY CE",
+                "--exit-button-text",
+                "Volver al launcher",
             ]
         );
         assert!(!arguments.iter().any(|a| a == "--core"));
