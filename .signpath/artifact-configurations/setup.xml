@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Reference copy of the SignPath artifact configuration "setup" of the
+  AYTHER-Play-CE project. SignPath reads the copy stored in the project; keep
+  both identical.
+
+  Input: the GitHub artifact "unsigned-setup" (a ZIP holding the Inno Setup
+  installer compiled from the signed stage).
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="ayther-play-ce-*-windows-x86_64-setup.exe">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
