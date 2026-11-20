@@ -8,8 +8,16 @@ versioned releases begin.
 
 ## [Unreleased]
 
+## [0.1.0-beta.1] - 2026-11-20
+
+First published pre-release: a Windows installer (per user, no administrator rights) with
+the locked AYTHER Runtime `v0.1.0-beta.21` and Tessera. It is not code-signed; verify it
+with its `.sha256` file.
+
 ### Added
 
+- Release workflow: a `v*` tag builds the Windows installer and publishes it as a GitHub
+  pre-release with its SHA-256 sidecar.
 - Pinned Rust toolchain, Windows checks and required release integration preparation.
 - Save failure-injection regressions and pack-path isolation tests.
 - Beta validation record, Runtime control-map documentation and versioned packaging script.
@@ -24,6 +32,7 @@ versioned releases begin.
 
 ### Changed
 
+- Runtime lock bumped to `v0.1.0-beta.21`.
 - Reframed product documentation around the repository's verifiable early-stage state.
 - Clarified the architectural and licensing boundary between AYTHER Play CE and the separate
   proprietary AYTHER Play product.
@@ -44,6 +53,5 @@ versioned releases begin.
 - Added a coordinated vulnerability-reporting policy and documented the local-pack trust
   boundary.
 
-No versioned release has been published.
-
-[Unreleased]: https://github.com/Ayther-Dev/AYTHER-Play-CE/commits/main
+[Unreleased]: https://github.com/Ayther-Dev/AYTHER-Play-CE/compare/v0.1.0-beta.1...HEAD
+[0.1.0-beta.1]: https://github.com/Ayther-Dev/AYTHER-Play-CE/releases/tag/v0.1.0-beta.1
