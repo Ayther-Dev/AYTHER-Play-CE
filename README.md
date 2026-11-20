@@ -209,7 +209,9 @@ Results and startup logs are saved in `artifacts/window-startup`.
 
 ## Known limitations
 
-- No versioned release, installer, package repository, or binary artifact is published.
+- No versioned release or package repository is published. `tools/build-installer.ps1` builds a
+  Windows installer locally (see [docs/RELEASE.md](docs/RELEASE.md#windows-installer)); it is not
+  code-signed.
 - Source-contract tests require the AYTHER Runtime source checkout described above.
 - CI, supported platforms, minimum Rust version, release signing, and long-term support are not
   yet defined.

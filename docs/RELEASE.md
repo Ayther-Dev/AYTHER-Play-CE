@@ -70,3 +70,30 @@ game checks above. Check DLL loading and font rendering; the packaging script
 does not prove startup or close those checks automatically. Record the archive
 hash, commit, toolchain, OS/GPU and results in the beta validation record. A package
 is not approved for release until those checks and license review are complete.
+
+## Windows installer
+
+`./tools/build-installer.ps1` builds the installer from a clean committed
+checkout. It needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`) and
+Visual Studio with the C++ x64 tools. It:
+
+1. builds Play CE in release mode;
+2. downloads the Runtime named by `tools/runtime-lock.json` and checks its
+   SHA-256, and refuses a Runtime without the Tessera provider;
+3. stages Play CE, the Runtime next to it (executable, DLLs, `fonts/`,
+   `shaders/`), the Visual C++ runtime DLLs, the Play CE, Runtime, Engine and
+   Tessera licenses under `licenses/`, and `build-info.json`;
+4. refuses Visual C++ DLLs older than the MSVC toolset that linked either
+   executable;
+5. compiles `installer/ayther-play-ce.iss` into
+   `dist/ayther-play-ce-<version>-windows-x86_64-setup.exe` with a SHA-256
+   sidecar.
+
+The setup installs per user, without administrator rights, in
+`%LOCALAPPDATA%\Programs\AYTHER Play CE`, adds a Start menu entry (desktop
+icon optional) and an uninstaller. User data in `%APPDATA%\Ayther` (settings,
+saves) is not removed on uninstall. Upgrades keep the same `AppId`; never
+change it. The setup is not code-signed, so Windows SmartScreen warns on first
+run.
+
+Silent install, for testing: `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR=<dir>`.
