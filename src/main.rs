@@ -19,6 +19,12 @@
 //! ROMs y auditar un `.ay` de cientos de megas. Nada de eso toca la red, así
 //! que la ventana no depende de que haya conexión para abrir.
 
+// La build de release es una aplicación de ventana: abrir Play desde el menú
+// Inicio no abre además una terminal. La de debug (`cargo run`) conserva la
+// consola para seguir el log durante el desarrollo; el log de una release se
+// lee redirigiendo stderr (`ayther_play_ce.exe 2> play.log`).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 slint::include_modules!();
 
 mod artwork;

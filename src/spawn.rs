@@ -13,6 +13,20 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+/// `ayther_runtime.exe` es un programa de consola. Lanzado desde Play, que en
+/// release es una aplicación de ventana, Windows le abriría una terminal nueva.
+/// Su stdout y su stderr ya van por tuberías a Play, así que no necesita una.
+pub(crate) fn without_console_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 /// Result returned (on a background thread) when a game session ends.
 #[derive(Debug, Clone)]
 pub struct SessionResult {
@@ -157,6 +171,7 @@ pub fn launch<E, F>(
     let require_reservations = !reservations.is_empty();
     let runtime_path = request.runtime;
     let mut cmd = Command::new(runtime_path);
+    without_console_window(&mut cmd);
     for (file, flag) in reservations
         .iter()
         .zip(["--rom-revision", "--pack-revision"])
