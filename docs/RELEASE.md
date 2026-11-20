@@ -93,7 +93,35 @@ The setup installs per user, without administrator rights, in
 `%LOCALAPPDATA%\Programs\AYTHER Play CE`, adds a Start menu entry (desktop
 icon optional) and an uninstaller. User data in `%APPDATA%\Ayther` (settings,
 saves) is not removed on uninstall. Upgrades keep the same `AppId`; never
-change it. The setup is not code-signed, so Windows SmartScreen warns on first
-run.
+change it.
+
+`-Step Stage` stops after step 4 (the stage is in
+`dist/<name>-installer/stage`) and `-Step Compile` runs step 5 from that stage,
+refusing a stage built from another commit or version. The release workflow
+uses them to sign in between.
+
+### Release workflow and code signing
+
+Pushing a `v<Cargo version>` tag (or `v<version>-<suffix>`) runs
+`.github/workflows/release.yml` on Windows: it stages, signs
+`ayther_play_ce.exe`, compiles the setup, signs it, and publishes a GitHub
+pre-release with the setup and its `.sha256`. A manual run builds the same
+artifact without publishing.
+
+Signing uses SignPath Foundation (see [the code signing policy](code-signing-policy.md))
+and runs only when the repository is configured:
+
+| Setting | Kind | Value |
+| --- | --- | --- |
+| `SIGNPATH_ORGANIZATION_ID` | variable | SignPath organization ID; without it the setup is unsigned |
+| `SIGNPATH_API_TOKEN` | secret | API token of the SignPath CI user |
+| `SIGNPATH_PROJECT_SLUG` | variable, optional | defaults to `AYTHER-Play-CE` |
+| `SIGNPATH_SIGNING_POLICY` | variable, optional | defaults to `release-signing`; `test-signing` while SignPath reviews the project |
+
+The SignPath project needs the artifact configurations `play-exe` and `setup`,
+whose reference copies are in `.signpath/artifact-configurations`.
+`tools/verify-signature.ps1` checks each signed file (signer, timestamp, and a
+trusted chain under `release-signing`). Signing does not remove the SmartScreen
+warning at once: reputation builds with downloads of signed releases.
 
 Silent install, for testing: `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR=<dir>`.

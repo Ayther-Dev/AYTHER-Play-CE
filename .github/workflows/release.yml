@@ -1,0 +1,178 @@
+name: Release
+
+# Builds the Windows installer on a version tag (or by hand, without
+# publishing) and, once SignPath is configured, signs it:
+#
+#   stage (Play CE + locked Runtime) -> sign ayther_play_ce.exe
+#   -> compile the setup -> sign the setup -> publish
+#
+# Code signing (docs/code-signing-policy.md) runs only when the repository
+# variable SIGNPATH_ORGANIZATION_ID exists; until then the setup is unsigned.
+# The provider is swappable: only the "SignPath" steps know it.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SIGNING_POLICY: ${{ vars.SIGNPATH_SIGNING_POLICY || 'release-signing' }}
+
+jobs:
+  installer:
+    name: Windows installer
+    # The locked Runtime is linked by MSVC 14.5x (VS 2026): the app-local
+    # Visual C++ DLLs must come from the same or a newer toolset.
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    permissions:
+      # actions: read lets SignPath download the unsigned artifacts.
+      actions: read
+      contents: read
+    outputs:
+      setup: ${{ steps.compile.outputs.setup }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tag against Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json).packages |
+              Where-Object name -eq 'ayther_play_ce' | ForEach-Object version
+          if ($env:GITHUB_REF_NAME -ne "v$version" -and -not $env:GITHUB_REF_NAME.StartsWith("v$version-")) {
+              throw "Tag $env:GITHUB_REF_NAME does not match Cargo version $version."
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.5.4 -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage Play CE and the locked Runtime
+        id: stage
+        shell: pwsh
+        run: |
+          $stage = ./tools/build-installer.ps1 -Step Stage | Select-Object -Last 1
+          "stage=$stage" >> $env:GITHUB_OUTPUT
+
+      - name: Upload ayther_play_ce.exe for signing
+        id: unsigned-play
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-play
+          path: ${{ steps.stage.outputs.stage }}/ayther_play_ce.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign ayther_play_ce.exe (SignPath)
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'AYTHER-Play-CE' }}
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          artifact-configuration-slug: play-exe
+          github-artifact-id: ${{ steps.unsigned-play.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/play
+
+      - name: Put the signed ayther_play_ce.exe in the stage
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: pwsh
+        env:
+          STAGE: ${{ steps.stage.outputs.stage }}
+        run: |
+          ./tools/verify-signature.ps1 -Path signed/play/ayther_play_ce.exe -Policy $env:SIGNING_POLICY
+          Copy-Item signed/play/ayther_play_ce.exe (Join-Path $env:STAGE 'ayther_play_ce.exe') -Force
+
+      - name: Compile the setup
+        id: compile
+        shell: pwsh
+        run: |
+          $setup = ./tools/build-installer.ps1 -Step Compile | Select-Object -Last 1
+          "setup=$(Split-Path $setup -Leaf)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload the setup for signing
+        id: unsigned-setup
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unsigned-setup
+          path: dist/${{ steps.compile.outputs.setup }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Sign the setup (SignPath)
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'AYTHER-Play-CE' }}
+          signing-policy-slug: ${{ env.SIGNING_POLICY }}
+          artifact-configuration-slug: setup
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/setup
+
+      - name: Replace the setup with the signed one
+        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        shell: pwsh
+        env:
+          SETUP: ${{ steps.compile.outputs.setup }}
+        run: |
+          ./tools/verify-signature.ps1 -Path "signed/setup/$env:SETUP" -Policy $env:SIGNING_POLICY
+          Copy-Item "signed/setup/$env:SETUP" "dist/$env:SETUP" -Force
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$env:SETUP").Hash.ToLowerInvariant()
+          "$hash  $env:SETUP" | Set-Content "dist/$env:SETUP.sha256" -Encoding ascii
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installer
+          path: |
+            dist/${{ steps.compile.outputs.setup }}
+            dist/${{ steps.compile.outputs.setup }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: installer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: installer
+          path: dist
+
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SETUP: ${{ needs.installer.outputs.setup }}
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c "$SETUP.sha256")
+          gh release create "$GITHUB_REF_NAME" "dist/$SETUP" "dist/$SETUP.sha256" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "AYTHER Play CE $GITHUB_REF_NAME" \
+            --notes "Windows installer (per user, no administrator rights) with the locked AYTHER Runtime and Tessera. Verify with the .sha256 file."
