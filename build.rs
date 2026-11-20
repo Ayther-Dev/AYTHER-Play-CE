@@ -50,7 +50,7 @@ fn main() {
     // rancio y el icono del exe sigue siendo el anterior hasta un build limpio
     // (el mismo problema que en el Lab resuelve OBJECT_DEPENDS).
     println!("cargo:rerun-if-changed=resources/ayther_play_ce.rc");
-    println!("cargo:rerun-if-changed=resources/AYTHER-Play.ico");
+    println!("cargo:rerun-if-changed=resources/AYTHER-Play-CE.ico");
     // Y los CATÁLOGOS, por lo mismo. Declarar cualquier `rerun-if-changed`
     // apaga el default de cargo —«rehacé si cambió algo del paquete»—, así que
     // sin esta línea regenerar `lang/` con `gen_translations.py` no rehacía el

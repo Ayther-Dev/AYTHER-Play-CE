@@ -225,7 +225,7 @@ fn no_pill_is_drawn_with_the_raw_token() {
 /// El `.pen` la dibuja así en las diez TopBar y en la portada: `Logo` de 40 en
 /// `--brand` y el nombre en `--text-bright`. Estaba sin logo y en el acento —y
 /// el acento es del elemento ACTIVO (la pestaña, el chip elegido, el botón
-/// primario), así que la marca amarilla competía con ellos en cada pantalla.
+/// primario), así que la marca en el acento competía con ellos en cada pantalla.
 /// Quien pone el color de la casa es el logo.
 #[test]
 fn the_brand_wears_its_logo_and_not_the_accent() {

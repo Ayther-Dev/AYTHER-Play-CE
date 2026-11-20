@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="resources/AYTHER-Play.png" alt="AYTHER Play CE logo" width="160">
+  <img src="docs/assets/branding/ayther-play-ce-logo.svg" alt="AYTHER Play CE logo" width="160">
 </p>
 
 <h1 align="center">AYTHER Play CE</h1>

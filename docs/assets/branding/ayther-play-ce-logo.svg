@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 4267 4267" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:affinity="https://www.affinity.studio/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <g transform="matrix(1,0,0,1,-14400,-4800)">
+        <g id="Play-CE" affinity:id="Play CE" transform="matrix(4.166667,0,0,4.166667,14400,4800)">
+            <rect x="0" y="0" width="1024" height="1024" style="fill:none;"/>
+            <g id="backgound">
+            </g>
+            <g id="Palette">
+            </g>
+            <g id="Icons">
+            </g>
+            <g id="Logos">
+                <rect x="0" y="0" width="1024" height="1024" style="fill:rgb(45,47,51);"/>
+                <g transform="matrix(1,0,0,1,714.3129,792)">
+                    <path d="M0,-560L-112,-560L-81.99,-448L-112,-336L-232.605,-336L-202.595,-448L-142.1,-448L-112.09,-560L-224.09,-560L-254.1,-448L-314.595,-448L-434.636,0L-322.636,0L-262.615,-224L-77.072,-224L-47.061,-336L0,-336L30.01,-448L0,-560Z" style="fill:rgb(251,44,54);fill-rule:nonzero;"/>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

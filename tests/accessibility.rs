@@ -311,6 +311,48 @@ fn opaque_tokens(src: &str) -> Vec<(String, (f64, f64, f64))> {
     out
 }
 
+/// Los tonos del acento que sólo RELLENAN (botón primario, pestaña activa,
+/// hover y pulsado). El rojo de la marca, `#FB2C36`, no llega a 4.5:1 como
+/// texto sobre los fondos oscuros. Encima lleva `accent-fg`, blanco por
+/// decisión de diseño (3.8:1). El texto y los iconos del acento usan
+/// `accent-text`, que sí se mide en `token_contrast_meets_aa`.
+const FILL_ONLY_TOKENS: [&str; 3] = ["accent", "accent-hi", "accent-dim"];
+
+/// La exención de arriba vale mientras sea cierta: ninguno de esos tokens
+/// pinta texto ni iconos (`color:`). Si alguno vuelve a hacerlo, este test lo
+/// manda a `accent-text`.
+#[test]
+fn fill_only_accent_tokens_never_color_text() {
+    let ui = read("ui/appwindow.slint");
+    let mut offenders = Vec::new();
+    let mut rest = ui.as_str();
+    while let Some(i) = rest.find("color:") {
+        let is_border = rest[..i].ends_with('-');
+        let tail = &rest[i..];
+        let end = tail.find(';').unwrap_or(tail.len());
+        let value = &tail[..end];
+        if !is_border {
+            for token in FILL_ONLY_TOKENS {
+                let needle = format!("Tokens.{token}");
+                let mut from = 0;
+                while let Some(j) = value[from..].find(&needle) {
+                    let after = value[from + j + needle.len()..].chars().next();
+                    if !matches!(after, Some(c) if c == '-' || c.is_alphanumeric()) {
+                        offenders.push(value.lines().next().unwrap_or("").trim().to_string());
+                    }
+                    from += j + needle.len();
+                }
+            }
+        }
+        rest = &tail[end.max(1)..];
+    }
+    assert!(
+        offenders.is_empty(),
+        "un tono de relleno del acento pinta texto o iconos; usá `Tokens.accent-text`:\n  {}",
+        offenders.join("\n  ")
+    );
+}
+
 /// El texto de Play cumple WCAG 2.2 AA sobre cualquiera de sus fondos.
 ///
 /// **Por qué se mide contra los CINCO fondos y no contra el que cada color usa
@@ -370,8 +412,9 @@ fn token_contrast_meets_aa() {
             || name.starts_with("overlay-")
             || name == "modal-dim"
             || name == "border-soft"   // separador decorativo, no delimita un control
-            || name == "accent-fg"
-        // va SOBRE el acento, no sobre un fondo
+            || name == "accent-fg" // va SOBRE el acento, no sobre un fondo
+            || name == "text-inverse" // va sobre píldoras claras y el rojo de peligro
+            || FILL_ONLY_TOKENS.contains(&name.as_str())
         {
             continue;
         }

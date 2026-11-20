@@ -298,7 +298,7 @@ component Logo inherits Path {
     viewbox-width: 1024;
     viewbox-height: 1024;
     fill: Tokens.brand;
-    commands: "M761.56 111l-160 0 42.88 160-42.88 160-149.43 0 42.87-160 63.56 0 42.88-160-160 0-42.88 160-63.56 0-171.49 640 160 0 85.75-320 242.2 0 42.87-160 67.23 0 42.88-160-42.88-160z";
+    commands: "M714.31 232L602.31 232L632.32 344L602.31 456L481.71 456L511.72 344L572.21 344L602.22 232L490.22 232L460.21 344L399.72 344L279.68 792L391.68 792L451.7 568L637.24 568L667.25 456L714.31 456L744.32 344L714.31 232z";
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +344,7 @@ component PadGlyph inherits Rectangle {
         text: icon != "" ? icon
             : !Gamepad.connected && keyboard-key != "" ? keyboard-key
             : Gamepad.glyph(key);
-        color: Tokens.accent-fg;
+        color: Tokens.text-inverse;
         font-family: icon != "" ? Tokens.font-icon : Tokens.font-ui;
         font-size: Tokens.text-body-sm;
         font-weight: 700;
@@ -1093,12 +1093,12 @@ component ExplorerList inherits Rectangle {
                     padding-left: 12px; spacing: 12px;
                     Icon {
                         text: row.folder ? Icons.folder : "";
-                        color: root.focus-index == fi ? Tokens.accent : Tokens.text-dim;
+                        color: root.focus-index == fi ? Tokens.accent-text : Tokens.text-dim;
                         size: 20px;
                     }
                     Text {
                         text: row.title;
-                        color: root.focus-index == fi ? Tokens.accent : Tokens.text-normal;
+                        color: root.focus-index == fi ? Tokens.accent-text : Tokens.text-normal;
                         font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                         vertical-alignment: center;
                         horizontal-alignment: left; overflow: elide;
@@ -1278,7 +1278,7 @@ component TenFootDialog inherits Rectangle {
                     Text {
                         text: root.left-button-label;
                         color: left-area.has-hover && root.left-danger
-                            ? Tokens.accent-fg
+                            ? Tokens.text-inverse
                             : (root.left-danger ? Tokens.danger : Tokens.text-normal);
                         font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                         font-weight: 500;
@@ -1519,7 +1519,7 @@ component ScanBanner inherits Rectangle {
             // ScanBanner del .pen: `magnifying-glass` del acento. El escaneo es
             // una BÚSQUEDA de ROMs, no un refresco — el `↻` de antes era el
             // glifo que había, no el que el diseño pide.
-            text: Icons.magnifying-glass; color: Tokens.accent;
+            text: Icons.magnifying-glass; color: Tokens.accent-text;
         }
         Text {
             text: root.stage;
@@ -1631,9 +1631,9 @@ export component AppWindow inherits Window {
     title:            "Ayther Play";
     // Icono de VENTANA (barra de tareas mientras corre, Alt-Tab, encabezado del
     // gestor de ventanas). El del EJECUTABLE es otro y es Win32: sale del
-    // recurso ICON que compila build.rs desde resources/AYTHER-Play.ico. Los
+    // recurso ICON que compila build.rs desde resources/AYTHER-Play-CE.ico. Los
     // dos son la MISMA marca y se actualizan juntos.
-    icon:             @image-url("../resources/AYTHER-Play.png");
+    icon:             @image-url("../resources/AYTHER-Play-CE.png");
     // el chasis es 1920×1080. No es un capricho de resolución: la escala
     // 10-foot del diseño (tipos 18–64, controles 40/48/56, safe area 96/54,
     // grilla de 6×240+24) está medida sobre ese lienzo, y a 1280×720 los mismos
@@ -2319,9 +2319,9 @@ export component AppWindow inherits Window {
                 alignment: space-between; spacing: 24px;
 
                 // Left del .pen: el logo de 40 y la marca al lado. La marca va en
-                // `text-bright` y no en el acento: el amarillo es del elemento
+                // `text-bright` y no en el acento: el acento es del elemento
                 // ACTIVO —la pestaña, el chip elegido, el botón primario— y una
-                // marca amarilla compite con ellos en cada pantalla. Quien pone
+                // marca en el acento compite con ellos en cada pantalla. Quien pone
                 // el color de la casa acá es el logo.
                 // El logo va envuelto en un layout que centra: un hijo de alto
                 // fijo dentro de una fila queda pegado ARRIBA, y el isologotipo
@@ -2424,9 +2424,9 @@ export component AppWindow inherits Window {
                     }
                     if scanning: HorizontalLayout {
                         spacing: 8px;
-                        Icon { text: Icons.magnifying-glass; color: Tokens.accent; size: 20px; }
+                        Icon { text: Icons.magnifying-glass; color: Tokens.accent-text; size: 20px; }
                         Text {
-                            text: @tr("Escaneando…"); color: Tokens.accent;
+                            text: @tr("Escaneando…"); color: Tokens.accent-text;
                             font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                             vertical-alignment: center;
                         }
@@ -2555,7 +2555,7 @@ export component AppWindow inherits Window {
                             alignment: center; spacing: 16px;
                             Text {
                                 text: @tr("CONTINUAR");
-                                color: Tokens.accent;
+                                color: Tokens.accent-text;
                                 font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                                 font-weight: 600; letter-spacing: 1px;
                             }
@@ -2800,7 +2800,7 @@ export component AppWindow inherits Window {
                             // hacer a distancia de TV.
                             Icon {
                                 text: Icons.magnifying-glass;
-                                color: search-input.has-focus ? Tokens.accent : Tokens.text-dim;
+                                color: search-input.has-focus ? Tokens.accent-text : Tokens.text-dim;
                             }
                             // El placeholder va en un Rectangle y no suelto en
                             // el layout: dentro de un layout no se puede
@@ -2917,7 +2917,7 @@ export component AppWindow inherits Window {
                         Icon {
                             text: Icons.squares-four;
                             size: 28px;
-                            color: root.list-view ? Tokens.text-dim : Tokens.accent;
+                            color: root.list-view ? Tokens.text-dim : Tokens.accent-text;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                         }
@@ -2932,7 +2932,7 @@ export component AppWindow inherits Window {
                         Icon {
                             text: Icons.list;
                             size: 28px;
-                            color: root.list-view ? Tokens.accent : Tokens.text-dim;
+                            color: root.list-view ? Tokens.accent-text : Tokens.text-dim;
                             x: (parent.width - self.width) / 2;
                             y: (parent.height - self.height) / 2;
                         }
@@ -2967,7 +2967,7 @@ export component AppWindow inherits Window {
                         }
                         Text {
                             text: @tr("Quitar filtros");
-                            color: Tokens.accent;
+                            color: Tokens.accent-text;
                             font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                             font-weight: 500;
                             horizontal-alignment: center; vertical-alignment: center;
@@ -3376,11 +3376,11 @@ export component AppWindow inherits Window {
                                     if root.details-save != "": HorizontalLayout {
                                         spacing: 8px; alignment: start;
                                         Icon {
-                                            text: Icons.floppy-disk; color: Tokens.accent; size: 20px;
+                                            text: Icons.floppy-disk; color: Tokens.accent-text; size: 20px;
                                         }
                                         Text {
                                             text: root.details-save;
-                                            color: Tokens.accent;
+                                            color: Tokens.accent-text;
                                             font-family: Tokens.font-ui;
                                             font-size: Tokens.text-body-sm;
                                             vertical-alignment: center;
@@ -3556,7 +3556,7 @@ export component AppWindow inherits Window {
                                         border-radius: Tokens.radius-sm;
                                         HorizontalLayout {
                                             padding: 12px; spacing: 12px;
-                                            Icon { text: Icons.package; color: Tokens.accent; size: 28px; }
+                                            Icon { text: Icons.package; color: Tokens.accent-text; size: 28px; }
                                             Text {
                                                 text: installed-pack.name;
                                                 horizontal-stretch: 1;
@@ -4056,7 +4056,7 @@ export component AppWindow inherits Window {
                             // color: a distancia de TV el color solo no basta,
                             // y esta es la fila que no hay que confundir.
                             text: i == 0 ? @tr("Actual") : @tr("Anterior");
-                            color: i == 0 ? Tokens.accent : Tokens.text-dim;
+                            color: i == 0 ? Tokens.accent-text : Tokens.text-dim;
                             font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                             vertical-alignment: center;
                             width: 120px;
@@ -4270,7 +4270,7 @@ export component AppWindow inherits Window {
                             padding-left: 12px; padding-right: 12px; spacing: 16px;
                             Text {
                                 text: row.action; width: 200px;
-                                color: root.controls-row == fi ? Tokens.accent : Tokens.text-normal;
+                                color: root.controls-row == fi ? Tokens.accent-text : Tokens.text-normal;
                                 font-family: Tokens.font-ui; font-size: Tokens.text-body-sm;
                                 vertical-alignment: center;
                             }
@@ -4281,7 +4281,7 @@ export component AppWindow inherits Window {
                                     ? @tr("apretá una tecla…") : row.key;
                                 width: 180px;
                                 color: root.controls-row == fi && root.controls-capture == 1
-                                    ? Tokens.accent : Tokens.text-bright;
+                                    ? Tokens.accent-text : Tokens.text-bright;
                                 font-family: Tokens.font-mono; font-size: Tokens.text-body-sm;
                                 vertical-alignment: center;
                             }
@@ -4290,7 +4290,7 @@ export component AppWindow inherits Window {
                                     ? @tr("apretá un botón…") : row.button;
                                 color: row.no-button ? Tokens.text-dim
                                     : root.controls-row == fi && root.controls-capture == 2
-                                    ? Tokens.accent : Tokens.text-bright;
+                                    ? Tokens.accent-text : Tokens.text-bright;
                                 font-family: Tokens.font-mono; font-size: Tokens.text-body-sm;
                                 vertical-alignment: center;
                             }
@@ -4654,7 +4654,7 @@ export component AppWindow inherits Window {
                                 : i == root.session-step ? Icons.circle-notch
                                                         : Icons.circle;
                             color: i < root.session-step ? Tokens.success
-                                 : i == root.session-step ? Tokens.accent : Tokens.text-dim;
+                                 : i == root.session-step ? Tokens.accent-text : Tokens.text-dim;
                         }
                         Text {
                             // En la fuente de la UI y no en la mono: la mono era
@@ -4886,7 +4886,7 @@ export component AppWindow inherits Window {
                                 Text {
                                     text: row.label;
                                     color: !row.available ? Tokens.text-dim
-                                         : (i == config-row ? Tokens.accent : Tokens.text-bright);
+                                         : (i == config-row ? Tokens.accent-text : Tokens.text-bright);
                                     font-family: Tokens.font-ui; font-size: Tokens.text-body;
                                     font-weight: 500; vertical-alignment: center;
                                 }
@@ -4914,7 +4914,7 @@ export component AppWindow inherits Window {
                                             // se mueve.
                                             Icon {
                                                 text: row.available && row.value != "" ? Icons.caret-down : "";
-                                                color: i == config-row ? Tokens.accent : Tokens.text-dim;
+                                                color: i == config-row ? Tokens.accent-text : Tokens.text-dim;
                                                 size: 24px;
                                             }
                                         }
@@ -5022,7 +5022,7 @@ export component AppWindow inherits Window {
                                         // sección: separa lo declarado de lo
                                         // comprobado sin necesitar dos listas.
                                         text: row.label;
-                                        color: row.value == "" ? Tokens.accent
+                                        color: row.value == "" ? Tokens.accent-text
                                              : (row.level == "error" ? Tokens.danger
                                              : (row.level == "advertencia" ? Tokens.warning
                                              : (row.level == "ok" ? Tokens.success : Tokens.text-dim)));
@@ -5112,7 +5112,7 @@ export component AppWindow inherits Window {
                                         // inventada seria peor que ninguna.
                                         Text {
                                             text: line.role;
-                                            color: Tokens.accent; font-size: 12px;
+                                            color: Tokens.accent-text; font-size: 12px;
                                         }
                                         Text {
                                             text: line.licenses;
@@ -5241,7 +5241,7 @@ export component AppWindow inherits Window {
                                 alignment: space-between;
                                 Text {
                                     text: row.label;
-                                    color: i == feedback-row ? Tokens.accent : Tokens.text-normal;
+                                    color: i == feedback-row ? Tokens.accent-text : Tokens.text-normal;
                                     font-family: Tokens.font-ui; font-size: Tokens.text-body;
                                     vertical-alignment: center;
                                 }
@@ -5257,7 +5257,7 @@ export component AppWindow inherits Window {
                                     for e in [1, 2, 3, 4, 5]: Icon {
                                         text: Icons.star;
                                         size: 22px;
-                                        color: row.value >= e ? Tokens.accent : Tokens.border;
+                                        color: row.value >= e ? Tokens.accent-text : Tokens.border;
                                     }
                                 }
                             }
@@ -5537,7 +5537,7 @@ export component AppWindow inherits Window {
                                     TouchArea { clicked => { onboarding-row = fi; } }
                                     HorizontalLayout {
                                         padding-left: 12px; padding-right: 12px; spacing: 12px;
-                                        Icon { text: Icons.folder; color: Tokens.accent; size: 28px; }
+                                        Icon { text: Icons.folder; color: Tokens.accent-text; size: 28px; }
                                         Text {
                                             text: row.title;
                                             color: Tokens.text-bright;

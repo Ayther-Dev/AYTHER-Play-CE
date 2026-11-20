@@ -3,11 +3,11 @@
 //
 // Icono de la aplicación (Explorer, barra de tareas anclada, Alt-Tab): el
 // recurso ICON de menor ID es el que Windows usa como icono del .exe.
-// Fuente: resources/AYTHER-Play.ico — multi-tamaño, la MISMA marca que
-// resources/AYTHER-Play.png, que es el icono de VENTANA (`icon` del Window en
+// Fuente: resources/AYTHER-Play-CE.ico — multi-tamaño, la MISMA marca que
+// resources/AYTHER-Play-CE.png, que es el icono de VENTANA (`icon` del Window en
 // ui/appwindow.slint). Los dos se actualizan JUNTOS.
 //
 // Mismo patrón que lab/resources/ayther_lab.rc. Lo compila build.rs con
 // embed-resource, y sólo cuando el target es Windows.
 // ---------------------------------------------------------------------------
-1 ICON "AYTHER-Play.ico"
+1 ICON "AYTHER-Play-CE.ico"
