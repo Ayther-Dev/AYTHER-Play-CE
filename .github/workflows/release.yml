@@ -49,7 +49,8 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          choco install innosetup --version=6.5.4 -y --no-progress
+          # The runner image may already carry a newer Inno Setup; keep the pinned one.
+          choco install innosetup --version=6.5.4 --allow-downgrade -y --no-progress
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stage Play CE and the locked Runtime
