@@ -33,7 +33,7 @@ mod date;
 mod diagnostics;
 mod explorer; // #588: elegir carpeta y core con el mando, sin diálogo del sistema
 mod game_details; // #597: los tres ejes de compatibilidad de la ficha        // #590: la hora UTC, escrita como la lee una persona
-mod onboarding; // #588: el primer arranque, en seis pasos
+mod onboarding; // #588: el primer arranque, en cinco pasos
 #[macro_use]
 mod i18n; // #585: la UI habla el idioma del jugador (msgid en español)
 mod feedback;

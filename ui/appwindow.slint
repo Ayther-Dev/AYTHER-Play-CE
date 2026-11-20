@@ -5457,13 +5457,17 @@ export component AppWindow inherits Window {
                                 spacing: 16px;
                                 if !root.onboarding-single-step: HorizontalLayout {
                                     spacing: 10px; alignment: start;
-                                    for i in [0, 1, 2, 3, 4, 5]: Rectangle {
+                                    // Cinco puntos: el primer arranque salta el paso del
+                                    // core (índice 3), que sólo se abre desde Ajustes.
+                                    for i in [0, 1, 2, 3, 4]: Rectangle {
                                         width: 12px; height: 12px;
                                         border-radius: Shape.pill(self.width, self.height);
-                                        background: i <= onboarding-step ? Tokens.accent : Tokens.border;
+                                        background: i <= (onboarding-step > 3 ? onboarding-step - 1 : onboarding-step)
+                                            ? Tokens.accent : Tokens.border;
                                     }
                                     Text {
-                                        text: @tr("Paso {} de {}", onboarding-step + 1, 6);
+                                        text: @tr("Paso {} de {}",
+                                            (onboarding-step > 3 ? onboarding-step - 1 : onboarding-step) + 1, 5);
                                         color: Tokens.text-dim;
                                         font-family: Tokens.font-mono;
                                         font-size: Tokens.text-body-sm;

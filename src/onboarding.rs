@@ -1,4 +1,4 @@
-//! onboarding.rs — el primer arranque, en seis pasos (#588, PLAY-EP01.1).
+//! onboarding.rs — el primer arranque, en cinco pasos (#588, PLAY-EP01.1).
 //!
 //! Antes de esto, Play no tenía primer arranque: leía `play_config.toml` si
 //! existía y, si no, inventaba rutas junto al ejecutable. Nadie escribía ese
@@ -6,8 +6,10 @@
 //! manera de configurar Play era editar TOML a mano. Para un launcher que se
 //! usa desde el sillón, eso es no tener configuración.
 //!
-//! Los seis pasos son los de `docs/design/play-ce.pen` (00 y 00b–00f): idioma ·
-//! mandos · carpetas de ROM · core · BYOR/BYOC · resumen.
+//! Las seis pantallas son las de `docs/design/play-ce.pen` (00 y 00b–00f):
+//! idioma · mandos · carpetas de ROM · core · BYOR/BYOC · resumen. El primer
+//! arranque recorre cinco: salta el core, porque las instalaciones nuevas usan
+//! Tessera, que no pide archivo. Esa pantalla la abre Ajustes › Núcleo.
 //!
 //! El paso 1 elige **sólo el idioma**. El diseño mostraba también un tema
 //! (oscuro / alto contraste) y llegó a estar en pantalla, pero no había paleta
@@ -89,6 +91,14 @@ pub enum Step {
 /// solo—, pero el oráculo cuenta con él para saber si los recorrió todos: el `allow` no cubre `cargo test`: si el oráculo se va, el aviso vuelve.
 #[cfg_attr(not(test), allow(dead_code))]
 pub const STEPS: usize = 6;
+
+/// Cuántos pasos recorre el primer arranque: todos menos el del core. Tessera
+/// es el núcleo de las instalaciones nuevas (`CoreProvider::NEW_INSTALL`) y no
+/// pide ningún archivo, así que el paso «ELEGÍ TU CORE» se salta. Sigue
+/// existiendo: Ajustes › Núcleo lo abre solo, para quien quiera un core
+/// libretro, y `required_step` vuelve a él si ese core desapareció.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const FIRST_RUN_STEPS: usize = STEPS - 1;
 
 impl Step {
     pub fn index(self) -> usize {
@@ -338,6 +348,9 @@ impl State {
             return false;
         }
         self.step = Step::from_index(self.step.index() + 1);
+        if self.step == Step::Core {
+            self.step = Step::Terms;
+        }
         true
     }
 
@@ -370,6 +383,9 @@ impl State {
             return false;
         }
         self.step = Step::from_index(self.step.index() - 1);
+        if self.step == Step::Core {
+            self.step = Step::Folders;
+        }
         true
     }
 
@@ -808,9 +824,17 @@ mod tests {
         while e.advance() {
             seen.push(e.step);
         }
-        assert_eq!(seen.len(), STEPS, "recorrido: {seen:?}");
+        assert_eq!(seen.len(), FIRST_RUN_STEPS, "recorrido: {seen:?}");
+        assert!(
+            !seen.contains(&Step::Core),
+            "el primer arranque no pasa por el core: {seen:?}"
+        );
         assert_eq!(e.step, Step::Summary);
-        while e.go_back() {}
+        let mut back = vec![e.step];
+        while e.go_back() {
+            back.push(e.step);
+        }
+        assert!(!back.contains(&Step::Core), "volviendo tampoco: {back:?}");
         assert_eq!(e.step, Step::Welcome);
     }
 
@@ -1179,7 +1203,7 @@ mod tests {
         assert!(c.onboarding_complete);
     }
 
-    /// El wizard completo, de punta a punta: se recorren los seis pasos y al
+    /// El wizard completo, de punta a punta: se recorren los cinco pasos y al
     /// final el archivo EXISTE y dice lo que el jugador eligió.
     ///
     /// Es la razón de ser de #588. Antes, `Config::save()` no tenía un solo
@@ -1199,10 +1223,11 @@ mod tests {
         assert!(e.advance()); // → carpetas (el mando es opcional)
         // Paso 3: una carpeta de verdad.
         e.add_folder(tmp.path().to_path_buf());
-        assert!(e.advance()); // → core
-        // Paso 4: un core que valida. El archivo se crea de verdad porque
-        // `hace_falta` comprueba que siga existiendo, y esa comprobación es
-        // parte de lo que este test verifica.
+        // Un core libretro que valida, como si se hubiera elegido en Ajustes ›
+        // Núcleo: el primer arranque ya no pasa por ese paso, pero lo elegido
+        // tiene que llegar al archivo igual. El archivo se crea de verdad
+        // porque `hace_falta` comprueba que siga existiendo, y esa
+        // comprobación es parte de lo que este test verifica.
         let core = tmp.path().join("gpgx.dll");
         std::fs::write(&core, b"MZ").unwrap();
         e.provider = crate::config::CoreProvider::External;
@@ -1213,8 +1238,9 @@ mod tests {
             version: "v1".into(),
             extensions: vec!["md".into()],
         }));
-        assert!(e.advance()); // → términos
-        // Paso 5: aceptar.
+        assert!(e.advance()); // → términos (el core se salta)
+        assert_eq!(e.step, Step::Terms);
+        // Paso 4: aceptar.
         assert!(!e.advance(), "se pudo pasar los términos sin aceptarlos");
         e.terms_accepted = true;
         assert!(e.advance()); // → resumen
