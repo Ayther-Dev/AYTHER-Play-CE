@@ -8,6 +8,14 @@ versioned releases begin.
 
 ## [Unreleased]
 
+## [0.1.0-beta.2] - 2026-11-20
+
+### Fixed
+
+- The Windows release build no longer opens a terminal window next to Play, and launching a
+  game or probing a core no longer opens one for `ayther_runtime.exe`. Debug builds keep the
+  console; a release's log is captured by redirecting stderr (`ayther_play_ce.exe 2> play.log`).
+
 ## [0.1.0-beta.1] - 2026-11-20
 
 First published pre-release: a Windows installer (per user, no administrator rights) with
@@ -53,5 +61,6 @@ with its `.sha256` file.
 - Added a coordinated vulnerability-reporting policy and documented the local-pack trust
   boundary.
 
-[Unreleased]: https://github.com/Ayther-Dev/AYTHER-Play-CE/compare/v0.1.0-beta.1...HEAD
+[Unreleased]: https://github.com/Ayther-Dev/AYTHER-Play-CE/compare/v0.1.0-beta.2...HEAD
+[0.1.0-beta.2]: https://github.com/Ayther-Dev/AYTHER-Play-CE/compare/v0.1.0-beta.1...v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/Ayther-Dev/AYTHER-Play-CE/releases/tag/v0.1.0-beta.1

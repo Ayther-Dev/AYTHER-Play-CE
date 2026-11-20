@@ -389,6 +389,7 @@ enum ProbeRun {
 /// leerla lo dejaría colgado aunque el core no lo estuviera.
 fn run_probe(runtime: &Path, core: &Path, limit: std::time::Duration) -> ProbeRun {
     let mut command = std::process::Command::new(runtime);
+    crate::spawn::without_console_window(&mut command);
     command.arg("--probe-core").arg(core);
     run_command(command, limit)
 }
