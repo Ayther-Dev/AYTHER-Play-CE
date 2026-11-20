@@ -97,31 +97,18 @@ change it.
 
 `-Step Stage` stops after step 4 (the stage is in
 `dist/<name>-installer/stage`) and `-Step Compile` runs step 5 from that stage,
-refusing a stage built from another commit or version. The release workflow
-uses them to sign in between.
+refusing a stage built from another commit or version.
 
-### Release workflow and code signing
+### Release workflow
 
 Pushing a `v<Cargo version>` tag (or `v<version>-<suffix>`) runs
-`.github/workflows/release.yml` on Windows: it stages, signs
-`ayther_play_ce.exe`, compiles the setup, signs it, and publishes a GitHub
-pre-release with the setup and its `.sha256`. A manual run builds the same
-artifact without publishing.
+`.github/workflows/release.yml` on Windows: it stages, compiles the setup and
+publishes a GitHub pre-release with the setup and its `.sha256`. A manual run
+builds the same artifact without publishing.
 
-Signing uses SignPath Foundation (see [the code signing policy](code-signing-policy.md))
-and runs only when the repository is configured:
-
-| Setting | Kind | Value |
-| --- | --- | --- |
-| `SIGNPATH_ORGANIZATION_ID` | variable | SignPath organization ID; without it the setup is unsigned |
-| `SIGNPATH_API_TOKEN` | secret | API token of the SignPath CI user |
-| `SIGNPATH_PROJECT_SLUG` | variable, optional | defaults to `AYTHER-Play-CE` |
-| `SIGNPATH_SIGNING_POLICY` | variable, optional | defaults to `release-signing`; `test-signing` while SignPath reviews the project |
-
-The SignPath project needs the artifact configurations `play-exe` and `setup`,
-whose reference copies are in `.signpath/artifact-configurations`.
-`tools/verify-signature.ps1` checks each signed file (signer, timestamp, and a
-trusted chain under `release-signing`). Signing does not remove the SmartScreen
-warning at once: reputation builds with downloads of signed releases.
+The setup is not code-signed (the SignPath Foundation signing request was
+rejected), so Windows SmartScreen warns on first run; users verify the
+download against its `.sha256`. Nothing in the build or the workflow depends
+on a signing provider or its secrets.
 
 Silent install, for testing: `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR=<dir>`.

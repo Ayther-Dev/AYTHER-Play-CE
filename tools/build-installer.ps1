@@ -16,10 +16,8 @@ Build the Windows installer of AYTHER Play CE with the locked Runtime.
 
 Output: dist/ayther-play-ce-<version>-windows-x86_64-setup.exe (+ .sha256).
 
-Code signing happens between the steps (see docs/code-signing-policy.md):
-the release workflow runs -Step Stage, signs the staged ayther_play_ce.exe,
-runs -Step Compile and then signs the setup. Locally, -Step All (the
-default) builds an unsigned setup in one go.
+The release workflow runs -Step Stage and then -Step Compile; locally,
+-Step All (the default) does both in one go. The setup is not code-signed.
 
 .PARAMETER Step
 All (default): stage and compile. Stage: steps 1-4 into

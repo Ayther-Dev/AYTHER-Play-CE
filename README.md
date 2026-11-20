@@ -211,9 +211,8 @@ Results and startup logs are saved in `artifacts/window-startup`.
 
 - No versioned release is published yet. A `v*` tag builds the Windows installer in GitHub
   Actions and publishes it as a pre-release; `tools/build-installer.ps1` builds the same installer
-  locally (see [docs/RELEASE.md](docs/RELEASE.md#windows-installer)). Releases are code-signed
-  through SignPath Foundation once the project is approved
-  ([code signing policy](docs/code-signing-policy.md)); until then they are unsigned.
+  locally (see [docs/RELEASE.md](docs/RELEASE.md#windows-installer)). Releases are not
+  code-signed; verify the setup with its `.sha256` file.
 - Source-contract tests require the AYTHER Runtime source checkout described above.
 - Supported platforms, minimum Rust version, and long-term support are not yet defined.
 - Generated Slint token and icon files are present, but their generator workflow is not included
